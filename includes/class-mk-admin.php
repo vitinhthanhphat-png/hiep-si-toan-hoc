@@ -1080,18 +1080,6 @@ class MK_Admin {
 							</table>
 						</div>
 					</div>
-
-					<!-- Box Shortcode Nền Tối -->
-					<div class="mk-ts-shortcode-card">
-						<p class="mk-ts-shortcode-label">Shortcode</p>
-						<div class="mk-ts-shortcode-list">
-							<code class="mk-ts-shortcode-pill">[hiep_si_toan_hoc]</code>
-							<code class="mk-ts-shortcode-pill">[hiep_si_toan_hoc book="tap1"]</code>
-							<code class="mk-ts-shortcode-pill">[hiep_si_toan_hoc book="tap2"]</code>
-							<code class="mk-ts-shortcode-pill">[hiep_si_toan_hoc book="all"]</code>
-						</div>
-						<p class="mk-ts-shortcode-desc">Dán shortcode vào bất kỳ Page hoặc Post nào để hiển thị plugin.</p>
-					</div>
 				</div>
 			</div><!-- /#mk-panel-author -->
 
