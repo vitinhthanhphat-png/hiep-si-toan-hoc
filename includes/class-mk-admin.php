@@ -71,11 +71,14 @@ class MK_Admin {
 			return;
 		}
 
+		$css_path = MK_PLUGIN_DIR . 'assets/css/admin-style.css';
+		$css_ver  = file_exists( $css_path ) ? MK_PLUGIN_VERSION . '.' . filemtime( $css_path ) : MK_PLUGIN_VERSION;
+
 		wp_enqueue_style(
-			'math-knight-admin-style',
+			'math-knight-admin-v2',
 			MK_PLUGIN_URL . 'assets/css/admin-style.css',
 			array(),
-			MK_PLUGIN_VERSION
+			$css_ver
 		);
 	}
 
@@ -423,7 +426,16 @@ class MK_Admin {
 		if ( ! in_array( $active_tab, array( 'settings', 'leaderboard', 'updater', 'author' ), true ) ) {
 			$active_tab = 'settings';
 		}
+		$inline_css_path = MK_PLUGIN_DIR . 'assets/css/admin-style.css';
 		?>
+		<?php if ( file_exists( $inline_css_path ) ) : ?>
+			<style id="mk-admin- critical-css">
+				<?php
+				// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Static plugin admin stylesheet owned by plugin.
+				echo file_get_contents( $inline_css_path );
+				?>
+			</style>
+		<?php endif; ?>
 		<div class="wrap mk-admin-wrap">
 			<!-- Header Gọn Phẳng & Thanh Điều Hướng 4 Tab Khoa Học -->
 			<div class="mk-admin-topbar">
@@ -776,19 +788,19 @@ class MK_Admin {
 					</div>
 
 					<div class="mk-table-responsive">
-						<table class="wp-list-table widefat fixed striped mk-scores-table">
+						<table class="wp-list-table widefat striped mk-scores-table">
 							<thead>
 								<tr>
-									<th style="width:65px;">Hạng</th>
-									<th>Tên Học Sinh (Hiệp Sĩ)</th>
-									<th style="width:150px;">Nhân Vật</th>
-									<th style="width:110px;">Điểm Số</th>
-									<th style="width:110px;">Ải Vượt Qua</th>
-									<th style="width:110px;">Chuỗi Đúng</th>
-									<th style="width:110px;">Độ Chính Xác</th>
-									<th>Huy Hiệu Đạt Được</th>
-									<th style="width:145px;">Thời Gian</th>
-									<th style="width:80px;">Thao Tác</th>
+									<th class="mk-col-rank">Hạng</th>
+									<th class="mk-col-player">Tên Học Sinh (Hiệp Sĩ)</th>
+									<th class="mk-col-avatar">Nhân Vật</th>
+									<th class="mk-col-score">Điểm Số</th>
+									<th class="mk-col-stage">Ải Vượt Qua</th>
+									<th class="mk-col-streak">Chuỗi Đúng</th>
+									<th class="mk-col-acc">Độ Chính Xác</th>
+									<th class="mk-col-badges">Huy Hiệu Đạt Được</th>
+									<th class="mk-col-time">Thời Gian</th>
+									<th class="mk-col-action">Thao Tác</th>
 								</tr>
 							</thead>
 							<tbody>
@@ -922,7 +934,7 @@ class MK_Admin {
 			     TAB 3: CẬP NHẬT TỰ ĐỘNG TỪ GITHUB RELEASES (CHỈ BẢN RELEASE .ZIP)
 			     ================================================================ -->
 			<div id="mk-panel-updater" class="mk-tab-panel <?php echo 'updater' === $active_tab ? 'is-active' : ''; ?>">
-				<div class="mk-settings-grid-2col">
+				<div class="mk-updater-wrap">
 					<div class="mk-card mk-updater-card">
 						<div class="mk-card__header mk-card__header--flex">
 							<div>
@@ -987,7 +999,7 @@ class MK_Admin {
 						</div>
 
 						<div class="mk-card__footer mk-updater-actions">
-							<form method="post" action="<?php echo esc_url( admin_url( 'admin.php?page=' . self::PAGE_SLUG . '&tab=updater' ) ); ?>" style="display:inline-block;">
+							<form method="post" action="<?php echo esc_url( admin_url( 'admin.php?page=' . self::PAGE_SLUG . '&tab=updater' ) ); ?>" style="display:inline-block;margin:0;">
 								<input type="hidden" name="mk_action" value="check_github_update" />
 								<?php wp_nonce_field( 'mk_check_update_action', 'mk_update_nonce' ); ?>
 								<button type="submit" class="button button-primary">
@@ -1006,35 +1018,6 @@ class MK_Admin {
 									📥 Tải Gói Release (.ZIP)
 								</a>
 							<?php endif; ?>
-						</div>
-					</div>
-
-					<div class="mk-card">
-						<div class="mk-card__header">
-							<h2>📖 Quy Trình Phát Hành Bản Cập Nhật (Release ZIP)</h2>
-							<p>Đảm bảo WordPress chỉ cập nhật từ gói Release đã tối ưu (~1.86 MB), không tải mã nguồn thô.</p>
-						</div>
-						<div class="mk-embed-guide">
-							<div class="mk-embed-item">
-								<span class="mk-embed-item__title">Bước 1: Đóng gói file .zip chuẩn WordPress</span>
-								<div class="mk-code-box">
-									<code>python scripts/build_wp_zip.py</code>
-								</div>
-								<small>Tạo file <code>hiep-si-toan-hoc-plugin.zip</code> (tự động loại bỏ thư mục nặng <code>docs/pdf/</code> và các script phát triển).</small>
-							</div>
-
-							<div class="mk-embed-item">
-								<span class="mk-embed-item__title">Bước 2: Tạo Release chính thức trên GitHub</span>
-								<div class="mk-code-box">
-									<code>gh release create v1.1 hiep-si-toan-hoc-plugin.zip --title "Release v1.1"</code>
-								</div>
-								<small>Hoặc vào mục <strong>Releases → Draft a new release</strong> trên GitHub và đính kèm file <code>hiep-si-toan-hoc-plugin.zip</code> vào mục <strong>Attach binaries</strong>.</small>
-							</div>
-
-							<div class="mk-embed-item">
-								<span class="mk-embed-item__title">Bước 3: Bấm Cập nhật ngay trong WordPress</span>
-								<p class="mk-embed-item__desc">Bấm nút <strong>"🔄 Kiểm Tra Bản Cập Nhật Mới Từ GitHub"</strong> ở cột bên trái, sau đó vào <strong>Dashboard → Updates</strong> hoặc <strong>Plugins</strong> để bấm <strong>Update Now</strong> 1-click.</p>
-							</div>
 						</div>
 					</div>
 				</div>
