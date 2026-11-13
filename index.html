@@ -3820,7 +3820,9 @@ window.MK_SGK_ASSETS = {
           this.awardBadge('fury_hero');
         }
 
+        this.recordHistory();
         this.persistSaveData();
+        this.syncScoreToWordPress();
         return {
           isCorrect: true,
           chosenAnswer: String(userRawAnswer || ''),
@@ -3907,19 +3909,37 @@ window.MK_SGK_ASSETS = {
 
     recordHistory() {
       const accuracy = this.getAccuracyPercent();
+      const pName = this.sanitizePlayerName(this.saveData.playerName);
+      const bestScore = Math.max(Number(this.score) || 0, Number(this.saveData.highScore) || 0);
       const entry = {
         date: new Date().toISOString(),
-        playerName: this.saveData.playerName,
+        playerName: pName,
         avatar: this.saveData.avatar,
         bookMode: this.getBookMode(),
-        score: this.score,
+        score: bestScore,
         stagesCleared: this.saveData.crystals.length,
         maxStreak: this.maxStreak,
         accuracy,
         mode: this.config.mode
       };
-      this.saveData.history.unshift(entry);
-      this.saveData.history = this.saveData.history.slice(0, 25);
+      const existingIdx = this.saveData.history.findIndex(
+        (h) => String(h.playerName || '').toLowerCase() === pName.toLowerCase()
+      );
+      if (existingIdx >= 0) {
+        const prev = this.saveData.history[existingIdx];
+        this.saveData.history[existingIdx] = {
+          ...prev,
+          ...entry,
+          score: Math.max(Number(prev.score) || 0, bestScore),
+          stagesCleared: Math.max(Number(prev.stagesCleared) || 0, this.saveData.crystals.length),
+          maxStreak: Math.max(Number(prev.maxStreak) || 0, this.maxStreak)
+        };
+      } else {
+        this.saveData.history.unshift(entry);
+      }
+      this.saveData.history = this.saveData.history
+        .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
+        .slice(0, 25);
     }
 
     async syncScoreToWordPress() {
@@ -3929,11 +3949,17 @@ window.MK_SGK_ASSETS = {
 
       this.syncTopLevelToBookProgress();
       const accuracy = this.getAccuracyPercent();
+      const bestScore = Math.max(0, Math.min(36000, Math.round(Math.max(Number(this.score) || 0, Number(this.saveData.highScore) || 0))));
+      if (bestScore <= 0 && (!this.saveData.crystals || this.saveData.crystals.length === 0)) {
+        return null;
+      }
 
       const payload = {
+        user_id: this.currentUser && this.currentUser.userId ? Number(this.currentUser.userId) : 0,
+        user_token: this.currentUser && this.currentUser.userToken ? String(this.currentUser.userToken) : '',
         player_name: this.sanitizePlayerName(this.saveData.playerName),
         avatar: this.saveData.avatar === 'mage' ? 'mage' : 'knight',
-        score: Math.max(0, Math.min(36000, Math.round(Number(this.score) || 0))),
+        score: bestScore,
         stages_cleared: Math.max(0, Math.min(5, Math.round(Number(this.saveData.crystals.length) || 0))),
         max_streak: Math.max(0, Math.min(100, Math.round(Number(this.maxStreak) || 0))),
         accuracy: Math.max(0, Math.min(100, Math.round(Number(accuracy) || 0))),
@@ -3942,7 +3968,7 @@ window.MK_SGK_ASSETS = {
         save_data: {
           avatar: this.saveData.avatar === 'mage' ? 'mage' : 'knight',
           bookMode: this.getBookMode(),
-          highScore: Math.max(0, Math.min(36000, Math.round(Number(this.saveData.highScore) || 0))),
+          highScore: bestScore,
           bookProgress: this.saveData.bookProgress,
           badges: Array.isArray(this.saveData.badges) ? this.saveData.badges : []
         }
@@ -3956,16 +3982,81 @@ window.MK_SGK_ASSETS = {
 
       try {
         const endpoint = apiUrl.endsWith('/') ? `${apiUrl}scores` : `${apiUrl}/scores`;
-        const res = await window.fetch(endpoint, {
+        let res = await window.fetch(endpoint, {
           method: 'POST',
+          credentials: 'same-origin',
           headers,
           body: JSON.stringify(payload)
         });
+        if (!res.ok) {
+          // Fallback khi X-WP-Nonce trên trang cache bị hết hạn: dùng user_token HMAC xác thực không phụ thuộc cookie nonce
+          res = await window.fetch(endpoint, {
+            method: 'POST',
+            credentials: 'omit',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        }
         if (!res.ok) return null;
-        return await res.json();
+        const data = await res.json();
+        if (data && Array.isArray(data.leaderboard) && data.leaderboard.length > 0) {
+          this.lastServerLeaderboard = data.leaderboard;
+        }
+        return data;
       } catch (e) {
         return null;
       }
+    }
+
+    mergePlayerIntoLeaderboard(rows) {
+      const list = Array.isArray(rows) ? rows.map((r) => ({ ...r })) : [];
+      const bestScore = Math.max(0, Math.min(36000, Math.round(Math.max(Number(this.score) || 0, Number(this.saveData.highScore) || 0))));
+      const pName = this.sanitizePlayerName(this.saveData.playerName);
+      const currentUid = this.currentUser && this.currentUser.userId ? Number(this.currentUser.userId) : 0;
+
+      if (bestScore > 0) {
+        const accuracy = this.totalAnswered > 0 ? this.getAccuracyPercent() : 100;
+        const matchIdx = list.findIndex((r) => {
+          const rUid = Number(r.user_id || r.userId || 0);
+          if (currentUid > 0 && rUid === currentUid) return true;
+          const rName = this.sanitizePlayerName(r.playerName || r.player_name || '');
+          return rName.toLowerCase() === pName.toLowerCase();
+        });
+
+        if (matchIdx >= 0) {
+          const prev = list[matchIdx];
+          const prevScore = Number(prev.score) || 0;
+          const prevStages = Number(prev.stagesCleared !== undefined ? prev.stagesCleared : prev.stages_cleared) || 0;
+          list[matchIdx] = {
+            ...prev,
+            user_id: currentUid || Number(prev.user_id || prev.userId || 0),
+            player_name: pName,
+            playerName: pName,
+            avatar: this.saveData.avatar,
+            score: Math.max(prevScore, bestScore),
+            stages_cleared: Math.max(prevStages, this.saveData.crystals.length),
+            stagesCleared: Math.max(prevStages, this.saveData.crystals.length),
+            accuracy: bestScore >= prevScore ? accuracy : (Number(prev.accuracy) || accuracy),
+            isCurrentPlayer: true
+          };
+        } else {
+          list.push({
+            user_id: currentUid,
+            player_name: pName,
+            playerName: pName,
+            avatar: this.saveData.avatar,
+            score: bestScore,
+            stages_cleared: this.saveData.crystals.length,
+            stagesCleared: this.saveData.crystals.length,
+            accuracy,
+            isCurrentPlayer: true
+          });
+        }
+      }
+
+      return list
+        .sort((a, b) => (Number(b.score) || 0) - (Number(a.score) || 0))
+        .slice(0, 20);
     }
 
     async fetchLeaderboard() {
@@ -3973,12 +4064,15 @@ window.MK_SGK_ASSETS = {
       const apiUrl = String(rawApiUrl).trim();
       if (this.isValidHttpUrl(apiUrl) && typeof window.fetch === 'function') {
         try {
-          const endpoint = apiUrl.endsWith('/') ? `${apiUrl}leaderboard` : `${apiUrl}/leaderboard`;
-          const res = await window.fetch(endpoint);
+          const baseEndpoint = apiUrl.endsWith('/') ? `${apiUrl}leaderboard` : `${apiUrl}/leaderboard`;
+          const sep = baseEndpoint.includes('?') ? '&' : '?';
+          const endpoint = `${baseEndpoint}${sep}_t=${Date.now()}`;
+          const res = await window.fetch(endpoint, { cache: 'no-store' });
           if (res.ok) {
             const data = await res.json();
             if (data && Array.isArray(data.leaderboard) && data.leaderboard.length > 0) {
-              return data.leaderboard;
+              this.lastServerLeaderboard = data.leaderboard;
+              return this.mergePlayerIntoLeaderboard(data.leaderboard);
             }
           }
         } catch (e) {
@@ -3986,8 +4080,12 @@ window.MK_SGK_ASSETS = {
         }
       }
 
+      if (Array.isArray(this.lastServerLeaderboard) && this.lastServerLeaderboard.length > 0) {
+        return this.mergePlayerIntoLeaderboard(this.lastServerLeaderboard);
+      }
+
       if (window.MathKnightWPConfig && Array.isArray(window.MathKnightWPConfig.leaderboard) && window.MathKnightWPConfig.leaderboard.length > 0) {
-        return window.MathKnightWPConfig.leaderboard;
+        return this.mergePlayerIntoLeaderboard(window.MathKnightWPConfig.leaderboard);
       }
 
       // Kết hợp lịch sử localStorage và các bạn nhỏ trong SGK Kết nối tri thức
@@ -4007,19 +4105,7 @@ window.MK_SGK_ASSETS = {
         accuracy: h.accuracy
       }));
 
-      if (this.saveData.highScore > 0 && localEntries.length === 0) {
-        localEntries.push({
-          playerName: this.saveData.playerName,
-          avatar: this.saveData.avatar,
-          score: this.saveData.highScore,
-          stagesCleared: this.saveData.crystals.length,
-          accuracy: 96
-        });
-      }
-
-      return [...localEntries, ...sgkFriends]
-        .sort((a, b) => b.score - a.score)
-        .slice(0, 10);
+      return this.mergePlayerIntoLeaderboard([...localEntries, ...sgkFriends]);
     }
   }
 
@@ -5063,9 +5149,12 @@ window.MK_SGK_ASSETS = {
       align-items: center;
       justify-content: center;
       gap: 6px;
-      flex: 1 1 auto;
+      flex: 0 0 auto;
       white-space: nowrap;
       transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
+    }
+    .mk-btn-row > .mk-btn {
+      flex: 1 1 auto;
     }
     .mk-btn:hover:not(:disabled) {
       filter: brightness(1.04);
@@ -5755,7 +5844,8 @@ window.MK_SGK_ASSETS = {
         'nonce',
         'is-logged-in',
         'user-id',
-        'user-name'
+        'user-name',
+        'user-token'
       ];
     }
 
@@ -5841,6 +5931,7 @@ window.MK_SGK_ASSETS = {
         ? {
             isLoggedIn: true,
             userId: Number(this.getAttribute('user-id') || (rawWpUser && rawWpUser.userId) || 0),
+            userToken: String(this.getAttribute('user-token') || (rawWpUser && rawWpUser.userToken) || ''),
             userLogin: String((rawWpUser && rawWpUser.userLogin) || ''),
             displayName: String(this.getAttribute('user-name') || (rawWpUser && rawWpUser.displayName) || ''),
             highScore: Number((rawWpUser && rawWpUser.highScore) || 0),
@@ -7498,7 +7589,11 @@ window.MK_SGK_ASSETS = {
      * MÀN HÌNH 6: BẢNG VÀNG HIỆP SĨ (LEADERBOARD)
      * ------------------------------------------------------------------------ */
     async openLeaderboard() {
+      this.leaderboardRows = this.gm.mergePlayerIntoLeaderboard(this.leaderboardRows || []);
       this.setScreen('LEADERBOARD');
+      if (this.gm.score > 0 || this.gm.saveData.highScore > 0) {
+        await this.gm.syncScoreToWordPress();
+      }
       this.leaderboardRows = await this.gm.fetchLeaderboard();
       if (this.screen === 'LEADERBOARD') {
         this.renderLeaderboardScreen();
@@ -7509,25 +7604,40 @@ window.MK_SGK_ASSETS = {
       const rows = this.leaderboardRows.length > 0
         ? this.leaderboardRows
         : [
-            { playerName: this.gm.saveData.playerName, avatar: this.gm.saveData.avatar, score: this.gm.saveData.highScore, stagesCleared: this.gm.saveData.crystals.length, accuracy: 100 }
+            { playerName: this.gm.saveData.playerName, avatar: this.gm.saveData.avatar, score: Math.max(this.gm.score, this.gm.saveData.highScore), stagesCleared: this.gm.saveData.crystals.length, accuracy: 100, isCurrentPlayer: true }
           ];
+
+      const currentPlayerName = this.gm.sanitizePlayerName(this.gm.saveData.playerName).toLowerCase();
+      const currentUserId = this.gm.currentUser && this.gm.currentUser.userId ? Number(this.gm.currentUser.userId) : 0;
 
       const trHtml = rows.map((r, idx) => {
         const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
         const pName = this.gm.sanitizePlayerName(r.playerName || r.player_name || 'Hiệp Sĩ Nhí');
-        const isVerifiedMember = Number(r.user_id || r.userId || 0) > 0;
+        const rUid = Number(r.user_id || r.userId || 0);
+        const isCurrent = Boolean(
+          r.isCurrentPlayer ||
+          (currentUserId > 0 && rUid === currentUserId) ||
+          pName.toLowerCase() === currentPlayerName
+        );
+        const isVerifiedMember = rUid > 0;
         const verifiedBadge = isVerifiedMember
           ? ' <span title="Thành viên đã đăng nhập tài khoản" style="font-size:0.82rem;">✅</span>'
+          : '';
+        const youBadge = isCurrent
+          ? ' <span style="display:inline-block;margin-left:6px;padding:2px 8px;border-radius:999px;background:#FEF3C7;color:#B45309;border:1px solid #F59E0B;font-size:0.72rem;font-weight:900;">👈 Bạn</span>'
+          : '';
+        const rowStyle = isCurrent
+          ? ' style="background:#FFFBEB;outline:2px solid #FCD34D;"'
           : '';
         const safeScore = Math.max(0, Math.min(36000, Math.round(Number(r.score) || 0)));
         const rawStCleared = r.stagesCleared !== undefined ? r.stagesCleared : (r.stages_cleared || 0);
         const stCleared = Math.max(0, Math.min(5, Math.round(Number(rawStCleared) || 0)));
         const safeAccuracy = Math.max(0, Math.min(100, Math.round(Number(r.accuracy ?? 95) || 0)));
         return `
-          <tr>
+          <tr${rowStyle}>
             <td><strong>${medal}</strong></td>
             <td style="text-align:left;">
-              ${r.avatar === 'mage' ? '🔮' : '⚔️'} <strong>${this.escapeHtml(pName)}</strong>${verifiedBadge}
+              ${r.avatar === 'mage' ? '🔮' : '⚔️'} <strong>${this.escapeHtml(pName)}</strong>${verifiedBadge}${youBadge}
             </td>
             <td><strong style="color:#E11D48;">${safeScore}</strong></td>
             <td>💎 ${stCleared}/5</td>
@@ -7540,9 +7650,9 @@ window.MK_SGK_ASSETS = {
         this.mainEl,
         `
         <div style="background:#FFFDF9;border:3px solid #FFFFFF;border-radius:28px;box-shadow:0 8px 0 #FDE68A, 0 22px 44px -10px rgba(245,158,11,0.16);padding:20px 24px;max-width:760px;margin:0 auto;width:100%;">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
-            <h2 style="margin:0;font-size:1.42rem;font-weight:900;color:#D97706;">🏆 Bảng Vàng Hiệp Sĩ Toán Học</h2>
-            <button type="button" class="mk-btn mk-btn-outline" id="mk-lb-back" style="min-height:38px;padding:6px 14px;font-size:0.84rem;">
+          <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+            <h2 style="margin:0;font-size:1.35rem;font-weight:900;color:#D97706;">🏆 Bảng Vàng Hiệp Sĩ Toán Học</h2>
+            <button type="button" class="mk-btn mk-btn-outline" id="mk-lb-back" style="min-height:38px;padding:6px 14px;font-size:0.84rem;flex:0 0 auto;">
               ⬅️ Quay Lại
             </button>
           </div>

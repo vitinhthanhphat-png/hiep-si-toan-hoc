@@ -177,10 +177,13 @@ class MK_REST_API {
 	 * @return WP_REST_Response
 	 */
 	public static function get_leaderboard( $request ) {
+		if ( function_exists( 'nocache_headers' ) ) {
+			nocache_headers();
+		}
 		$limit       = $request->get_param( 'limit' ) ? absint( $request->get_param( 'limit' ) ) : 20;
 		$leaderboard = self::query_top_scores( $limit );
 
-		return new WP_REST_Response(
+		$response = new WP_REST_Response(
 			array(
 				'success'     => true,
 				'count'       => count( $leaderboard ),
@@ -188,6 +191,9 @@ class MK_REST_API {
 			),
 			200
 		);
+		$response->header( 'Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0' );
+		$response->header( 'Pragma', 'no-cache' );
+		return $response;
 	}
 
 	/**
@@ -197,11 +203,14 @@ class MK_REST_API {
 	 * @return WP_REST_Response
 	 */
 	public static function get_config( $request ) {
+		if ( function_exists( 'nocache_headers' ) ) {
+			nocache_headers();
+		}
 		$settings     = mk_get_settings();
 		$leaderboard  = self::query_top_scores( 20 );
 		$current_user = function_exists( 'mk_get_current_user_payload' ) ? mk_get_current_user_payload() : null;
 
-		return new WP_REST_Response(
+		$response = new WP_REST_Response(
 			array(
 				'success'      => true,
 				'version'      => MK_PLUGIN_VERSION,
@@ -213,6 +222,8 @@ class MK_REST_API {
 			),
 			200
 		);
+		$response->header( 'Cache-Control', 'no-store, no-cache, must-revalidate, max-age=0' );
+		return $response;
 	}
 
 	/**
@@ -302,12 +313,12 @@ class MK_REST_API {
 	public static function submit_score( $request ) {
 		global $wpdb;
 
-		// 0. Chống Spam / DoS (OWASP API4): Giới hạn tốc độ gửi điểm theo IP (tối đa 10 lần / 60 giây).
+		// 0. Chống Spam / DoS (OWASP API4): Giới hạn tốc độ gửi điểm theo IP (tối đa 60 lần / 60 giây).
 		$raw_ip    = isset( $_SERVER['REMOTE_ADDR'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REMOTE_ADDR'] ) ) : '';
 		$client_ip = filter_var( $raw_ip, FILTER_VALIDATE_IP ) ? $raw_ip : '0.0.0.0';
 		$rl_key    = 'mk_rl_' . md5( $client_ip );
 		$rl_count  = (int) get_transient( $rl_key );
-		if ( $rl_count >= 10 ) {
+		if ( $rl_count >= 60 ) {
 			return new WP_Error(
 				'rest_rate_limited',
 				__( 'Bạn gửi điểm quá nhanh. Vui lòng đợi 1 phút rồi thử lại.', 'hiep-si-toan-hoc' ),
@@ -418,12 +429,26 @@ class MK_REST_API {
 		$user_id    = get_current_user_id();
 		$now        = current_time( 'mysql' );
 
+		// Dự phòng khi trang bị cache tĩnh làm hết hạn X-WP-Nonce (request gửi lại không có cookie nonce):
+		// Xác thực chữ ký HMAC user_token (wp_hash('mk_uid_' . $user_id)) để nhận diện đúng tài khoản đã đăng nhập.
+		if ( 0 === $user_id && ! empty( $params['user_id'] ) && ! empty( $params['user_token'] ) ) {
+			$candidate_uid = absint( $params['user_id'] );
+			$provided_tok  = sanitize_text_field( (string) $params['user_token'] );
+			$expected_tok  = wp_hash( 'mk_uid_' . $candidate_uid );
+			if ( $candidate_uid > 0 && hash_equals( $expected_tok, $provided_tok ) ) {
+				$maybe_user = get_userdata( $candidate_uid );
+				if ( $maybe_user instanceof WP_User && ! empty( $maybe_user->ID ) ) {
+					$user_id = (int) $maybe_user->ID;
+				}
+			}
+		}
+
 		// Nếu học sinh đã đăng nhập tài khoản WordPress ($user_id > 0):
 		// 1) Luôn lấy tên hiển thị chính thức của tài khoản để chống giả mạo tên bạn khác.
 		// 2) Đồng bộ tiến độ (save_data) vào user_meta ('math_knight_save_data').
 		// 3) Gộp kỷ lục để mỗi tài khoản chỉ giữ 1 dòng điểm cao nhất trên Bảng Vàng.
 		if ( $user_id > 0 ) {
-			$wp_user = wp_get_current_user();
+			$wp_user = get_userdata( $user_id );
 			if ( $wp_user instanceof WP_User && ! empty( $wp_user->ID ) ) {
 				$wp_raw_name = ! empty( $wp_user->display_name ) ? $wp_user->display_name : $wp_user->user_login;
 				$wp_name     = sanitize_text_field( wp_strip_all_tags( (string) $wp_raw_name ) );
@@ -458,75 +483,92 @@ class MK_REST_API {
 				),
 				ARRAY_A
 			);
+		} else {
+			// Đối với khách (user_id = 0, không tính 5 nhân vật mẫu SGK), gộp theo player_name để cập nhật điểm liên tục.
+			$sgk_seed_names = array( 'Rô-bốt Thông Thái', 'Pháp Sư Mai', 'Hiệp Sĩ Nam', 'Dũng Sĩ Việt', 'Bé Mi Tinh Anh' );
+			if ( ! in_array( $player_name, $sgk_seed_names, true ) ) {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+				$existing_rows = $wpdb->get_results(
+					$wpdb->prepare(
+						// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+						"SELECT id, score, stages_cleared, max_streak, accuracy, badges FROM {$table_name} WHERE user_id = 0 AND player_name = %s ORDER BY score DESC, stages_cleared DESC, accuracy DESC, id ASC",
+						$player_name
+					),
+					ARRAY_A
+				);
+			} else {
+				$existing_rows = array();
+			}
+		}
 
-			if ( ! empty( $existing_rows ) && is_array( $existing_rows ) ) {
-				$primary    = $existing_rows[0];
-				$primary_id = (int) $primary['id'];
+		if ( ! empty( $existing_rows ) && is_array( $existing_rows ) ) {
+			$primary    = $existing_rows[0];
+			$primary_id = (int) $primary['id'];
 
-				// Gộp toàn bộ huy hiệu cũ và mới của tài khoản.
-				$merged_badges = $clean_badges;
-				foreach ( $existing_rows as $erow ) {
-					if ( ! empty( $erow['badges'] ) ) {
-						$dec = json_decode( $erow['badges'], true );
-						if ( is_array( $dec ) ) {
-							foreach ( $dec as $bkey ) {
-								$ckey = sanitize_key( $bkey );
-								if ( in_array( $ckey, $allowed_badges, true ) && ! in_array( $ckey, $merged_badges, true ) ) {
-									$merged_badges[] = $ckey;
-								}
+			// Gộp toàn bộ huy hiệu cũ và mới của người chơi.
+			$merged_badges = $clean_badges;
+			foreach ( $existing_rows as $erow ) {
+				if ( ! empty( $erow['badges'] ) ) {
+					$dec = json_decode( $erow['badges'], true );
+					if ( is_array( $dec ) ) {
+						foreach ( $dec as $bkey ) {
+							$ckey = sanitize_key( $bkey );
+							if ( in_array( $ckey, $allowed_badges, true ) && ! in_array( $ckey, $merged_badges, true ) ) {
+								$merged_badges[] = $ckey;
 							}
 						}
 					}
 				}
-
-				$best_score    = max( (int) $primary['score'], $score );
-				$best_stages   = max( (int) $primary['stages_cleared'], $stages_cleared );
-				$best_streak   = max( (int) $primary['max_streak'], $max_streak );
-				$best_accuracy = ( $score >= (int) $primary['score'] ) ? $accuracy : max( (int) $primary['accuracy'], $accuracy );
-
-				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-				$updated = $wpdb->update(
-					$table_name,
-					array(
-						'player_name'    => $player_name,
-						'avatar'         => $avatar,
-						'score'          => $best_score,
-						'stages_cleared' => $best_stages,
-						'max_streak'     => $best_streak,
-						'accuracy'       => $best_accuracy,
-						'badges'         => wp_json_encode( array_values( $merged_badges ) ),
-						'game_mode'      => $game_mode,
-						'created_at'     => $now,
-					),
-					array( 'id' => $primary_id ),
-					array( '%s', '%s', '%d', '%d', '%d', '%d', '%s', '%s', '%s' ),
-					array( '%d' )
-				);
-
-				if ( false === $updated ) {
-					return new WP_Error(
-						'db_update_error',
-						__( 'Không thể cập nhật kỷ lục vào cơ sở dữ liệu. Vui lòng thử lại.', 'hiep-si-toan-hoc' ),
-						array( 'status' => 500 )
-					);
-				}
-
-				// Dọn dẹp các dòng trùng lặp cũ (nếu có) của cùng user_id.
-				if ( count( $existing_rows ) > 1 ) {
-					// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
-					$wpdb->query(
-						$wpdb->prepare(
-							// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
-							"DELETE FROM {$table_name} WHERE user_id = %d AND id != %d",
-							$user_id,
-							$primary_id
-						)
-					);
-				}
-
-				$insert_id       = $primary_id;
-				$effective_score = $best_score;
 			}
+
+			$best_score    = max( (int) $primary['score'], $score );
+			$best_stages   = max( (int) $primary['stages_cleared'], $stages_cleared );
+			$best_streak   = max( (int) $primary['max_streak'], $max_streak );
+			$best_accuracy = ( $score >= (int) $primary['score'] ) ? $accuracy : max( (int) $primary['accuracy'], $accuracy );
+
+			// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+			$updated = $wpdb->update(
+				$table_name,
+				array(
+					'user_id'        => $user_id,
+					'player_name'    => $player_name,
+					'avatar'         => $avatar,
+					'score'          => $best_score,
+					'stages_cleared' => $best_stages,
+					'max_streak'     => $best_streak,
+					'accuracy'       => $best_accuracy,
+					'badges'         => wp_json_encode( array_values( $merged_badges ) ),
+					'game_mode'      => $game_mode,
+					'created_at'     => $now,
+				),
+				array( 'id' => $primary_id ),
+				array( '%d', '%s', '%s', '%d', '%d', '%d', '%d', '%s', '%s', '%s' ),
+				array( '%d' )
+			);
+
+			if ( false === $updated ) {
+				return new WP_Error(
+					'db_update_error',
+					__( 'Không thể cập nhật kỷ lục vào cơ sở dữ liệu. Vui lòng thử lại.', 'hiep-si-toan-hoc' ),
+					array( 'status' => 500 )
+				);
+			}
+
+			// Dọn dẹp các dòng trùng lặp cũ (nếu có) của cùng user_id.
+			if ( $user_id > 0 && count( $existing_rows ) > 1 ) {
+				// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+				$wpdb->query(
+					$wpdb->prepare(
+						// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+						"DELETE FROM {$table_name} WHERE user_id = %d AND id != %d",
+						$user_id,
+						$primary_id
+					)
+				);
+			}
+
+			$insert_id       = $primary_id;
+			$effective_score = $best_score;
 		}
 
 		if ( 0 === $insert_id ) {

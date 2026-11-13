@@ -150,6 +150,7 @@ function mk_get_current_user_payload() {
 	return array(
 		'isLoggedIn'    => true,
 		'userId'        => $user_id,
+		'userToken'     => wp_hash( 'mk_uid_' . $user_id ),
 		'userLogin'     => sanitize_user( $user->user_login ),
 		'displayName'   => $display_name,
 		'highScore'     => $best_score,

@@ -174,6 +174,7 @@ class MK_Shortcode_Block {
 		$is_logged_in = ! empty( $user_payload['isLoggedIn'] ) ? 'true' : 'false';
 		$user_id      = isset( $user_payload['userId'] ) ? (int) $user_payload['userId'] : 0;
 		$user_name    = isset( $user_payload['displayName'] ) ? (string) $user_payload['displayName'] : '';
+		$user_token   = isset( $user_payload['userToken'] ) ? (string) $user_payload['userToken'] : '';
 
 		$html = sprintf(
 			'<div class="mk-game-embed-wrapper" style="width:100%%;max-width:1080px;margin:24px auto;">' .
@@ -196,7 +197,8 @@ class MK_Shortcode_Block {
 				'book-mode="%14$s" ' .
 				'is-logged-in="%15$s" ' .
 				'user-id="%16$d" ' .
-				'user-name="%17$s"' .
+				'user-name="%17$s" ' .
+				'user-token="%18$s"' .
 			'></math-knight-game>' .
 			'</div>',
 			esc_attr( $mode ),
@@ -215,7 +217,8 @@ class MK_Shortcode_Block {
 			esc_attr( $book ),
 			esc_attr( $is_logged_in ),
 			(int) $user_id,
-			esc_attr( $user_name )
+			esc_attr( $user_name ),
+			esc_attr( $user_token )
 		);
 
 		return $html;
