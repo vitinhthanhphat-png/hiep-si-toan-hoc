@@ -1,0 +1,30 @@
+# WordPress Plugin Release Artifact (Uploaded to GitHub Releases, not tracked in Git)
+hiep-si-toan-hoc-plugin.zip
+*.zip
+
+# Heavy Raw SGK PDF Sources (Markdown & cropped PNGs are already tracked)
+docs/pdf/
+*.pdf
+
+# Python & Node Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+node_modules/
+
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+
+# OS & Editor Junk
+.DS_Store
+Thumbs.db
+desktop.ini
+*.swp
+*.swo
+*~
+.idea/
+.vscode/

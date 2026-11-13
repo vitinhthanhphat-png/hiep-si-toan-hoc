@@ -1,0 +1,26 @@
+/*!
+ * Plugin Name:       Hiệp Sĩ Toán Học: Giải Cứu Rừng Pha Lê (Toán Lớp 3 - Kết Nối Tri Thức)
+ * Plugin URI:        https://techsharevn.com
+ * Description:       Giải pháp Web & Plugin WordPress chuyên nghiệp - Web Game giáo dục môn Toán Lớp 3 bám sát bộ sách Kết nối tri thức với cuộc sống (GDPT 2018).
+ * Author:            Trần Vĩ Thành (Techshare VN)
+ * Author URI:        https://techsharevn.com
+ * Contact Phone:     0949 897 293
+ * Contact Email:     thanh.web1001@gmail.com
+ * Version:           1.0
+ * Build:             2026 - GPL-2.0-or-later
+ * License:           GPL-2.0-or-later
+ * License URI:       https://www.gnu.org/licenses/gpl-2.0.html
+ * Text Domain:       hiep-si-toan-hoc
+ */
+
+.mk-game-embed-wrapper {
+	width: 100%;
+	max-width: 1280px;
+	margin: 24px auto;
+	box-sizing: border-box;
+}
+
+math-knight-game {
+	display: block;
+	width: 100%;
+}
