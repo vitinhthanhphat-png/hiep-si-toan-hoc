@@ -170,6 +170,11 @@ class MK_Shortcode_Block {
 		$sgk_images_url = esc_url( MK_PLUGIN_URL . 'assets/images/sgk/' );
 		$topics_csv     = implode( ',', array_map( 'sanitize_key', $settings['enabled_topics'] ) );
 
+		$user_payload = function_exists( 'mk_get_current_user_payload' ) ? mk_get_current_user_payload() : array();
+		$is_logged_in = ! empty( $user_payload['isLoggedIn'] ) ? 'true' : 'false';
+		$user_id      = isset( $user_payload['userId'] ) ? (int) $user_payload['userId'] : 0;
+		$user_name    = isset( $user_payload['displayName'] ) ? (string) $user_payload['displayName'] : '';
+
 		$html = sprintf(
 			'<div class="mk-game-embed-wrapper" style="width:100%%;max-width:1080px;margin:24px auto;">' .
 			'<math-knight-game ' .
@@ -188,7 +193,10 @@ class MK_Shortcode_Block {
 				'sgk-images-url="%12$s" ' .
 				'fullscreen-button="%13$s" ' .
 				'book="%14$s" ' .
-				'book-mode="%14$s"' .
+				'book-mode="%14$s" ' .
+				'is-logged-in="%15$s" ' .
+				'user-id="%16$d" ' .
+				'user-name="%17$s"' .
 			'></math-knight-game>' .
 			'</div>',
 			esc_attr( $mode ),
@@ -204,7 +212,10 @@ class MK_Shortcode_Block {
 			esc_attr( $plugin_url ),
 			esc_attr( $sgk_images_url ),
 			esc_attr( $fullscreen ),
-			esc_attr( $book )
+			esc_attr( $book ),
+			esc_attr( $is_logged_in ),
+			(int) $user_id,
+			esc_attr( $user_name )
 		);
 
 		return $html;

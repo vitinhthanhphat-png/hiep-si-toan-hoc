@@ -3,7 +3,7 @@
  * Plugin Name:       Hiệp Sĩ Toán Học Lớp 3
  * Plugin URI:        https://techsharevn.com
  * Description:       Web Game nhập vai giáo dục môn Toán Lớp 3 bám sát bộ sách Kết nối tri thức với cuộc sống (GDPT 2018). Tích hợp Custom Web Component <math-knight-game> (Shadow DOM), Shortcode [hiep_si_toan_hoc], Gutenberg Block, Bảng xếp hạng REST API và Trang quản trị Giáo viên.
- * Version:           1.1
+ * Version:           1.2
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Trần Vĩ Thành (Techshare VN)
@@ -24,7 +24,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Định nghĩa các hằng số cốt lõi của Plugin.
  */
-define( 'MK_PLUGIN_VERSION', '1.1' );
+define( 'MK_PLUGIN_VERSION', '1.2' );
 define( 'MK_DB_VERSION', '1.0' );
 define( 'MK_GITHUB_REPO', 'vitinhthanhphat-png/hiep-si-toan-hoc' );
 define( 'MK_PLUGIN_FILE', __FILE__ );
@@ -77,6 +77,84 @@ function mk_get_settings() {
 	}
 
 	return $settings;
+}
+
+/**
+ * Lấy thông tin người dùng WordPress hiện tại (nếu đã đăng nhập) kèm kỷ lục điểm cao nhất
+ * và dữ liệu tiến độ đồng bộ trên đám mây (`user_meta`: `math_knight_save_data`).
+ *
+ * @return array Thông tin người dùng chuẩn hóa cho Frontend JS.
+ */
+function mk_get_current_user_payload() {
+	if ( ! is_user_logged_in() ) {
+		return array(
+			'isLoggedIn'    => false,
+			'userId'        => 0,
+			'userLogin'     => '',
+			'displayName'   => '',
+			'highScore'     => 0,
+			'savedProgress' => null,
+		);
+	}
+
+	$user = wp_get_current_user();
+	if ( ! ( $user instanceof WP_User ) || empty( $user->ID ) ) {
+		return array(
+			'isLoggedIn'    => false,
+			'userId'        => 0,
+			'userLogin'     => '',
+			'displayName'   => '',
+			'highScore'     => 0,
+			'savedProgress' => null,
+		);
+	}
+
+	global $wpdb;
+	$user_id    = (int) $user->ID;
+	$table_name = $wpdb->prefix . 'math_knight_scores';
+	$best_score = 0;
+
+	// Kiểm tra bảng tồn tại trước khi truy vấn điểm cao nhất của user_id.
+	// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+	$table_exists = $wpdb->get_var(
+		$wpdb->prepare( 'SHOW TABLES LIKE %s', $table_name )
+	);
+	if ( $table_exists === $table_name ) {
+		// phpcs:ignore WordPress.DB.DirectDatabaseQuery.DirectQuery, WordPress.DB.DirectDatabaseQuery.NoCaching
+		$best_score = (int) $wpdb->get_var(
+			$wpdb->prepare(
+				// phpcs:ignore WordPress.DB.PreparedSQL.InterpolatedNotPrepared
+				"SELECT COALESCE(MAX(score), 0) FROM {$table_name} WHERE user_id = %d",
+				$user_id
+			)
+		);
+	}
+
+	$raw_display  = ! empty( $user->display_name ) ? $user->display_name : $user->user_login;
+	$display_name = sanitize_text_field( wp_strip_all_tags( (string) $raw_display ) );
+	$display_name = trim( ltrim( $display_name, "=+-@\t\r " ) );
+	if ( empty( $display_name ) ) {
+		$display_name = sanitize_user( $user->user_login );
+	}
+	if ( function_exists( 'mb_substr' ) ) {
+		$display_name = mb_substr( $display_name, 0, 60, 'UTF-8' );
+	} else {
+		$display_name = substr( $display_name, 0, 60 );
+	}
+
+	$saved_progress = get_user_meta( $user_id, 'math_knight_save_data', true );
+	if ( ! is_array( $saved_progress ) ) {
+		$saved_progress = null;
+	}
+
+	return array(
+		'isLoggedIn'    => true,
+		'userId'        => $user_id,
+		'userLogin'     => sanitize_user( $user->user_login ),
+		'displayName'   => $display_name,
+		'highScore'     => $best_score,
+		'savedProgress' => $saved_progress,
+	);
 }
 
 /**
@@ -186,6 +264,7 @@ final class Math_Knight_Plugin {
 			'pluginUrl'    => esc_url_raw( MK_PLUGIN_URL ),
 			'sgkImagesUrl' => esc_url_raw( MK_PLUGIN_URL . 'assets/images/sgk/' ),
 			'settings'     => mk_get_settings(),
+			'currentUser'  => mk_get_current_user_payload(),
 		);
 
 		wp_localize_script(

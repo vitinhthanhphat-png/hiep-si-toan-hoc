@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * HIỆP SĨ TOÁN HỌC: GIẢI CỨU RỪNG PHA LÊ (MATH KNIGHT GRADE 3) - v1.1
+ * HIỆP SĨ TOÁN HỌC: GIẢI CỨU RỪNG PHA LÊ (MATH KNIGHT GRADE 3) - v1.2
  * Bộ sách: Toán 3 - Kết nối tri thức với cuộc sống (Tập 1 & Tập 2 - GDPT 2018)
  * Kiến trúc: Web Component <math-knight-game> (Shadow DOM Isolation)
  * Phụ thuộc: 100% Vanilla ES6 JS + SVG/Canvas + Web Audio API (Zero External Deps)
@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const MK_VERSION = '1.1';
+  const MK_VERSION = '1.2';
 
   /* ==========================================================================
    * 0. DỮ LIỆU CẤU HÌNH CỐT TRUYỆN 5 ẢI, 8 HUY HIỆU & SỔ TAY BÍ KÍP KẾT NỐI TRI THỨC
@@ -3099,11 +3099,15 @@
         nonce: config.nonce || ''
       };
 
+      this.currentUser = config.currentUser && config.currentUser.isLoggedIn ? config.currentUser : null;
       this.saveData = this.loadSaveData();
       if (this.config.bookMode) {
         this.setBookMode(this.config.bookMode);
       } else {
         this.syncBookProgressToTopLevel();
+      }
+      if (this.currentUser && this.currentUser.isLoggedIn) {
+        this.persistSaveData();
       }
       this.resetRunState();
     }
@@ -3155,6 +3159,21 @@
       };
     }
 
+    mergeBookEntries(entryA, entryB) {
+      const a = this.normalizeBookEntry(entryA);
+      const b = this.normalizeBookEntry(entryB);
+      const mergedStars = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+      for (let i = 1; i <= 5; i++) {
+        mergedStars[i] = Math.max(a.stageStars[i] || 0, b.stageStars[i] || 0);
+      }
+      const mergedCrystals = [...new Set([...a.crystals, ...b.crystals])].sort((x, y) => x - y);
+      return {
+        unlockedStage: Math.max(a.unlockedStage, b.unlockedStage),
+        stageStars: mergedStars,
+        crystals: mergedCrystals
+      };
+    }
+
     loadSaveData() {
       const defaultSave = {
         playerName: 'Hiệp Sĩ Nhí',
@@ -3174,61 +3193,106 @@
         timerEnabled: this.config.timerEnabled,
         history: []
       };
+      const validBadgeIds = new Set(BADGES_CONFIG.map((b) => b.id));
+      let result = { ...defaultSave };
+      let hasLocalSave = false;
+
       try {
         const raw = window.localStorage.getItem(STORAGE_KEY);
-        if (!raw) return defaultSave;
-        const parsed = JSON.parse(raw);
-        if (!parsed || typeof parsed !== 'object') return defaultSave;
-        const savedBookMode = parsed.bookMode === 'tap1' || parsed.bookMode === 'tap2' || parsed.bookMode === 'all'
-          ? parsed.bookMode
-          : defaultSave.bookMode;
-        const topLevelEntry = this.normalizeBookEntry({
-          unlockedStage: parsed.unlockedStage,
-          stageStars: parsed.stageStars,
-          crystals: parsed.crystals
-        });
-        const rawBP = parsed.bookProgress && typeof parsed.bookProgress === 'object' ? parsed.bookProgress : {};
-        const bookProgress = {
-          tap1: rawBP.tap1 ? this.normalizeBookEntry(rawBP.tap1) : (savedBookMode === 'tap1' ? topLevelEntry : this.createDefaultBookProgressEntry()),
-          tap2: rawBP.tap2 ? this.normalizeBookEntry(rawBP.tap2) : (savedBookMode === 'tap2' ? topLevelEntry : this.createDefaultBookProgressEntry()),
-          all: rawBP.all ? this.normalizeBookEntry(rawBP.all) : (savedBookMode === 'all' ? topLevelEntry : this.createDefaultBookProgressEntry())
-        };
-        const activeEntry = bookProgress[savedBookMode] || topLevelEntry;
-        const validBadgeIds = new Set(BADGES_CONFIG.map((b) => b.id));
-        const cleanBadges = Array.isArray(parsed.badges)
-          ? [...new Set(parsed.badges.map(String).filter((id) => validBadgeIds.has(id)))]
-          : [];
-        const cleanHistory = Array.isArray(parsed.history)
-          ? parsed.history.slice(0, 25).filter((h) => h && typeof h === 'object').map((h) => ({
-              date: typeof h.date === 'string' ? h.date.slice(0, 40) : new Date().toISOString(),
-              playerName: this.sanitizePlayerName(h.playerName),
-              avatar: h.avatar === 'mage' ? 'mage' : 'knight',
-              bookMode: h.bookMode === 'tap1' || h.bookMode === 'tap2' || h.bookMode === 'all' ? h.bookMode : 'tap1',
-              score: Math.max(0, Math.min(36000, Math.round(Number(h.score) || 0))),
-              stagesCleared: Math.max(0, Math.min(5, Math.round(Number(h.stagesCleared) || 0))),
-              maxStreak: Math.max(0, Math.min(100, Math.round(Number(h.maxStreak) || 0))),
-              accuracy: Math.max(0, Math.min(100, Math.round(Number(h.accuracy ?? 100) || 0))),
-              mode: h.mode === 'practice' ? 'practice' : 'story'
-            }))
-          : [];
-        return {
-          ...defaultSave,
-          playerName: this.sanitizePlayerName(parsed.playerName),
-          avatar: parsed.avatar === 'mage' ? 'mage' : 'knight',
-          bookMode: savedBookMode,
-          highScore: Math.max(0, Math.min(36000, Math.round(Number(parsed.highScore) || 0))),
-          unlockedStage: activeEntry.unlockedStage,
-          stageStars: { ...activeEntry.stageStars },
-          crystals: [...activeEntry.crystals],
-          bookProgress,
-          badges: cleanBadges,
-          soundEnabled: parsed.soundEnabled !== false,
-          timerEnabled: parsed.timerEnabled !== undefined ? Boolean(parsed.timerEnabled) : defaultSave.timerEnabled,
-          history: cleanHistory
-        };
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') {
+            hasLocalSave = true;
+            const savedBookMode = parsed.bookMode === 'tap1' || parsed.bookMode === 'tap2' || parsed.bookMode === 'all'
+              ? parsed.bookMode
+              : defaultSave.bookMode;
+            const topLevelEntry = this.normalizeBookEntry({
+              unlockedStage: parsed.unlockedStage,
+              stageStars: parsed.stageStars,
+              crystals: parsed.crystals
+            });
+            const rawBP = parsed.bookProgress && typeof parsed.bookProgress === 'object' ? parsed.bookProgress : {};
+            const bookProgress = {
+              tap1: rawBP.tap1 ? this.normalizeBookEntry(rawBP.tap1) : (savedBookMode === 'tap1' ? topLevelEntry : this.createDefaultBookProgressEntry()),
+              tap2: rawBP.tap2 ? this.normalizeBookEntry(rawBP.tap2) : (savedBookMode === 'tap2' ? topLevelEntry : this.createDefaultBookProgressEntry()),
+              all: rawBP.all ? this.normalizeBookEntry(rawBP.all) : (savedBookMode === 'all' ? topLevelEntry : this.createDefaultBookProgressEntry())
+            };
+            const activeEntry = bookProgress[savedBookMode] || topLevelEntry;
+            const cleanBadges = Array.isArray(parsed.badges)
+              ? [...new Set(parsed.badges.map(String).filter((id) => validBadgeIds.has(id)))]
+              : [];
+            const cleanHistory = Array.isArray(parsed.history)
+              ? parsed.history.slice(0, 25).filter((h) => h && typeof h === 'object').map((h) => ({
+                  date: typeof h.date === 'string' ? h.date.slice(0, 40) : new Date().toISOString(),
+                  playerName: this.sanitizePlayerName(h.playerName),
+                  avatar: h.avatar === 'mage' ? 'mage' : 'knight',
+                  bookMode: h.bookMode === 'tap1' || h.bookMode === 'tap2' || h.bookMode === 'all' ? h.bookMode : 'tap1',
+                  score: Math.max(0, Math.min(36000, Math.round(Number(h.score) || 0))),
+                  stagesCleared: Math.max(0, Math.min(5, Math.round(Number(h.stagesCleared) || 0))),
+                  maxStreak: Math.max(0, Math.min(100, Math.round(Number(h.maxStreak) || 0))),
+                  accuracy: Math.max(0, Math.min(100, Math.round(Number(h.accuracy ?? 100) || 0))),
+                  mode: h.mode === 'practice' ? 'practice' : 'story'
+                }))
+              : [];
+            result = {
+              ...defaultSave,
+              playerName: this.sanitizePlayerName(parsed.playerName),
+              avatar: parsed.avatar === 'mage' ? 'mage' : 'knight',
+              bookMode: savedBookMode,
+              highScore: Math.max(0, Math.min(36000, Math.round(Number(parsed.highScore) || 0))),
+              unlockedStage: activeEntry.unlockedStage,
+              stageStars: { ...activeEntry.stageStars },
+              crystals: [...activeEntry.crystals],
+              bookProgress,
+              badges: cleanBadges,
+              soundEnabled: parsed.soundEnabled !== false,
+              timerEnabled: parsed.timerEnabled !== undefined ? Boolean(parsed.timerEnabled) : defaultSave.timerEnabled,
+              history: cleanHistory
+            };
+          }
+        }
       } catch (e) {
-        return defaultSave;
+        result = { ...defaultSave };
       }
+
+      // Hợp nhất thông minh với tài khoản WordPress đã đăng nhập (nếu có)
+      if (this.currentUser && this.currentUser.isLoggedIn) {
+        if (this.currentUser.displayName) {
+          result.playerName = this.sanitizePlayerName(this.currentUser.displayName);
+        }
+        const wpHighScore = Math.max(0, Math.min(36000, Math.round(Number(this.currentUser.highScore) || 0)));
+        result.highScore = Math.max(result.highScore, wpHighScore);
+
+        const sp = this.currentUser.savedProgress;
+        if (sp && typeof sp === 'object') {
+          const spHighScore = Math.max(0, Math.min(36000, Math.round(Number(sp.highScore) || 0)));
+          result.highScore = Math.max(result.highScore, spHighScore);
+
+          if (!hasLocalSave && (sp.avatar === 'mage' || sp.avatar === 'knight')) {
+            result.avatar = sp.avatar;
+          }
+          if (!hasLocalSave && (sp.bookMode === 'tap1' || sp.bookMode === 'tap2' || sp.bookMode === 'all')) {
+            result.bookMode = sp.bookMode;
+          }
+          if (sp.bookProgress && typeof sp.bookProgress === 'object') {
+            ['tap1', 'tap2', 'all'].forEach((bm) => {
+              if (sp.bookProgress[bm]) {
+                result.bookProgress[bm] = this.mergeBookEntries(result.bookProgress[bm], sp.bookProgress[bm]);
+              }
+            });
+          }
+          if (Array.isArray(sp.badges)) {
+            const spBadges = sp.badges.map(String).filter((id) => validBadgeIds.has(id));
+            result.badges = [...new Set([...result.badges, ...spBadges])];
+          }
+          const activeMerged = result.bookProgress[result.bookMode] || result.bookProgress.tap1;
+          result.unlockedStage = activeMerged.unlockedStage;
+          result.stageStars = { ...activeMerged.stageStars };
+          result.crystals = [...activeMerged.crystals];
+        }
+      }
+
+      return result;
     }
 
     getBookMode() {
@@ -3535,6 +3599,7 @@
       const apiUrl = String(rawApiUrl).trim();
       if (!this.isValidHttpUrl(apiUrl) || typeof window.fetch !== 'function') return null;
 
+      this.syncTopLevelToBookProgress();
       const accuracy = this.getAccuracyPercent();
 
       const payload = {
@@ -3545,7 +3610,14 @@
         max_streak: Math.max(0, Math.min(100, Math.round(Number(this.maxStreak) || 0))),
         accuracy: Math.max(0, Math.min(100, Math.round(Number(accuracy) || 0))),
         badges: Array.isArray(this.saveData.badges) ? this.saveData.badges : [],
-        game_mode: this.config.mode === 'practice' ? 'practice' : 'story'
+        game_mode: this.config.mode === 'practice' ? 'practice' : 'story',
+        save_data: {
+          avatar: this.saveData.avatar === 'mage' ? 'mage' : 'knight',
+          bookMode: this.getBookMode(),
+          highScore: Math.max(0, Math.min(36000, Math.round(Number(this.saveData.highScore) || 0))),
+          bookProgress: this.saveData.bookProgress,
+          badges: Array.isArray(this.saveData.badges) ? this.saveData.badges : []
+        }
       };
 
       const headers = { 'Content-Type': 'application/json' };
@@ -5261,7 +5333,10 @@
         'enable-sgk-images',
         'enabled-topics',
         'api-url',
-        'nonce'
+        'nonce',
+        'is-logged-in',
+        'user-id',
+        'user-name'
       ];
     }
 
@@ -5338,6 +5413,24 @@
         ? rawTopics.split(',').map((s) => s.trim()).filter(Boolean)
         : Array.isArray(wpSettings.enabled_topics) ? wpSettings.enabled_topics : ['num', 'geo', 'word', 'stat'];
 
+      const rawWpUser = wpCfg.currentUser && typeof wpCfg.currentUser === 'object' ? wpCfg.currentUser : null;
+      const attrLoggedIn = this.getAttribute('is-logged-in');
+      const isUserLoggedIn = attrLoggedIn !== null
+        ? ['true', '1', 'yes'].includes(attrLoggedIn.toLowerCase())
+        : Boolean(rawWpUser && rawWpUser.isLoggedIn);
+      const currentUser = isUserLoggedIn
+        ? {
+            isLoggedIn: true,
+            userId: Number(this.getAttribute('user-id') || (rawWpUser && rawWpUser.userId) || 0),
+            userLogin: String((rawWpUser && rawWpUser.userLogin) || ''),
+            displayName: String(this.getAttribute('user-name') || (rawWpUser && rawWpUser.displayName) || ''),
+            highScore: Number((rawWpUser && rawWpUser.highScore) || 0),
+            savedProgress: rawWpUser && rawWpUser.savedProgress && typeof rawWpUser.savedProgress === 'object'
+              ? rawWpUser.savedProgress
+              : null
+          }
+        : null;
+
       this.gm = new GameManager({
         mode: attrMode,
         bookMode: attrBook,
@@ -5349,7 +5442,8 @@
         enableSgkImages,
         enabledTopics,
         apiUrl: this.getAttribute('api-url') || wpCfg.restUrl || '',
-        nonce: this.getAttribute('nonce') || wpCfg.nonce || ''
+        nonce: this.getAttribute('nonce') || wpCfg.nonce || '',
+        currentUser
       });
 
       this.sfx = new SoundFX(!this.gm.saveData.soundEnabled);
@@ -5829,12 +5923,23 @@
     renderStartScreen() {
       const sv = this.gm.saveData;
       const curBookMode = this.gm.getBookMode();
+      const isWpLoggedIn = Boolean(this.gm.currentUser && this.gm.currentUser.isLoggedIn);
+      const wpDisplayName = isWpLoggedIn
+        ? this.gm.sanitizePlayerName(this.gm.currentUser.displayName || sv.playerName)
+        : '';
       const coverUrl = this.gm.config.enableSgkImages ? VisualBuilder.getSgkImageUrl('cover_tap1') : '';
       const bookModeLabel = curBookMode === 'tap1'
         ? '📘 SGK Toán 3 Tập 1 (Học kì 1)'
         : curBookMode === 'tap2'
           ? '📗 SGK Toán 3 Tập 2 (Học kì 2)'
           : '👑 Tổng Hợp Cả Năm (Tập 1 & Tập 2)';
+
+      const loggedInBadgeHtml = isWpLoggedIn
+        ? `<span style="display:inline-flex;align-items:center;gap:4px;background:#DCFCE7;color:#166534;border:1.5px solid #86EFAC;border-radius:999px;padding:1px 9px;font-size:0.74rem;font-weight:900;margin-left:6px;">✅ Đã đăng nhập: ${this.escapeHtml(wpDisplayName)}</span>`
+        : '';
+      const nameInputAttrs = isWpLoggedIn
+        ? `readonly style="background:#F0FDF4;border-color:#86EFAC;color:#166534;cursor:not-allowed;" title="Tên Hiệp Sĩ được đồng bộ tự động theo tài khoản WordPress của em"`
+        : '';
 
       this.setSafeHtml(
         this.mainEl,
@@ -5866,8 +5971,8 @@
             </div>
 
             <div class="mk-form-group">
-              <label class="mk-label" for="mk-player-name">✏️ Tên Hiệp Sĩ của em:</label>
-              <input id="mk-player-name" class="mk-input" type="text" maxlength="40" value="${this.escapeHtml(sv.playerName)}" placeholder="Nhập tên của em..." />
+              <label class="mk-label" for="mk-player-name">✏️ Tên Hiệp Sĩ của em:${loggedInBadgeHtml}</label>
+              <input id="mk-player-name" class="mk-input" type="text" maxlength="40" value="${this.escapeHtml(sv.playerName)}" placeholder="Nhập tên của em..." ${nameInputAttrs} />
             </div>
 
             <div class="mk-label">🛡️ Chọn Nhân vật đại diện:</div>
@@ -5921,7 +6026,7 @@
       );
 
       const nameInput = this.mainEl.querySelector('#mk-player-name, #mk-input-name');
-      if (nameInput) {
+      if (nameInput && !isWpLoggedIn) {
         nameInput.addEventListener('input', (e) => {
           this.gm.saveData.playerName = this.gm.sanitizePlayerName(e.target.value);
           this.gm.persistSaveData();
@@ -6991,6 +7096,10 @@
       const trHtml = rows.map((r, idx) => {
         const medal = idx === 0 ? '🥇' : idx === 1 ? '🥈' : idx === 2 ? '🥉' : `#${idx + 1}`;
         const pName = this.gm.sanitizePlayerName(r.playerName || r.player_name || 'Hiệp Sĩ Nhí');
+        const isVerifiedMember = Number(r.user_id || r.userId || 0) > 0;
+        const verifiedBadge = isVerifiedMember
+          ? ' <span title="Thành viên đã đăng nhập tài khoản" style="font-size:0.82rem;">✅</span>'
+          : '';
         const safeScore = Math.max(0, Math.min(36000, Math.round(Number(r.score) || 0)));
         const rawStCleared = r.stagesCleared !== undefined ? r.stagesCleared : (r.stages_cleared || 0);
         const stCleared = Math.max(0, Math.min(5, Math.round(Number(rawStCleared) || 0)));
@@ -6999,7 +7108,7 @@
           <tr>
             <td><strong>${medal}</strong></td>
             <td style="text-align:left;">
-              ${r.avatar === 'mage' ? '🔮' : '⚔️'} <strong>${this.escapeHtml(pName)}</strong>
+              ${r.avatar === 'mage' ? '🔮' : '⚔️'} <strong>${this.escapeHtml(pName)}</strong>${verifiedBadge}
             </td>
             <td><strong style="color:#E11D48;">${safeScore}</strong></td>
             <td>💎 ${stCleared}/5</td>

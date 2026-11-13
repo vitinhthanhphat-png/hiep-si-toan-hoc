@@ -856,6 +856,9 @@ class MK_Admin {
 												?>
 												<strong class="mk-player-name"><?php echo esc_html( $item['player_name'] ); ?></strong>
 												<span class="mk-mode-pill"><?php echo esc_html( $item_mode_pill ); ?></span>
+												<?php if ( ! empty( $item['user_id'] ) && (int) $item['user_id'] > 0 ) : ?>
+													<span class="mk-mode-pill" style="background:#dcfce7;color:#166534;border-color:#86efac;">👤 User #<?php echo esc_html( (int) $item['user_id'] ); ?></span>
+												<?php endif; ?>
 											</td>
 											<td>
 												<?php if ( 'mage' === $item['avatar'] ) : ?>

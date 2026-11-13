@@ -508,9 +508,17 @@ if (indexHtmlExists) {
   const adminFullCode = fs.readFileSync(path.join(ROOT_DIR, 'includes/class-mk-admin.php'), 'utf8');
 
   assertCheck(
-    mainPluginCode.includes("define( 'MK_PLUGIN_VERSION', '1.1' )") &&
-      bundleCode.includes("const MK_VERSION = '1.1'"),
-    'Phiên bản v1.1 đồng bộ giữa WordPress Plugin (MK_PLUGIN_VERSION = 1.1) và Web Component (MK_VERSION = 1.1)'
+    mainPluginCode.includes("define( 'MK_PLUGIN_VERSION', '1.2' )") &&
+      bundleCode.includes("const MK_VERSION = '1.2'"),
+    'Phiên bản v1.2 đồng bộ giữa WordPress Plugin (MK_PLUGIN_VERSION = 1.2) và Web Component (MK_VERSION = 1.2)'
+  );
+  assertCheck(
+    mainPluginCode.includes('mk_get_current_user_payload') &&
+      restApiFullCode.includes('currentUser') &&
+      restApiFullCode.includes('math_knight_save_data') &&
+      bundleCode.includes('currentUser') &&
+      adminFullCode.includes('user_id'),
+    'Tích hợp Tài khoản WordPress Đăng nhập (mk_get_current_user_payload, currentUser, đồng bộ tiến độ user_meta math_knight_save_data & gộp kỷ lục Bảng Vàng theo user_id)'
   );
   assertCheck(
     adminFullCode.includes('sanitize_csv_cell') &&

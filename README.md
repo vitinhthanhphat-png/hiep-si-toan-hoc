@@ -2,7 +2,7 @@
 
 **Giải pháp Web & Plugin WordPress Giáo dục Tương tác môn Toán Lớp 3 — Bộ sách Kết nối tri thức với cuộc sống (GDPT 2018)**
 
-[![Phiên bản](https://img.shields.io/badge/Version-1.1-007a33?style=flat-square)](https://github.com/vitinhthanhphat-png/hiep-si-toan-hoc/releases)
+[![Phiên bản](https://img.shields.io/badge/Version-1.2-007a33?style=flat-square)](https://github.com/vitinhthanhphat-png/hiep-si-toan-hoc/releases)
 [![WordPress](https://img.shields.io/badge/WordPress-5.8%2B-21759b?style=flat-square)](https://wordpress.org)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-777bb4?style=flat-square)](https://php.net)
 [![Tác giả](https://img.shields.io/badge/Author-Techshare%20VN-007a33?style=flat-square)](https://techsharevn.com)
@@ -28,6 +28,8 @@
   - Không bao giờ xung đột CSS/JS với bất kỳ Theme WordPress nào (Astra, Flatsome, GeneratePress, Elementor, Divi...).
 - **🏆 Bảng Vàng Kỷ Lục Hybrid (`MySQL REST API` + `LocalStorage`):**
   - Tự động lưu điểm vào bảng cơ sở dữ liệu `wp_math_knight_scores` kèm cơ chế dự phòng Offline trên trình duyệt và xuất báo cáo CSV (Excel UTF-8 BOM) cho giáo viên.
+- **👤 Nhận diện Tài khoản WordPress Đăng nhập & Đồng bộ Đám mây (`v1.2`):**
+  - Tự động nhận diện học sinh đã đăng nhập WordPress (`mk_get_current_user_payload` / `currentUser`), tự điền & khóa tên hiển thị, đồng bộ tiến độ 15 ải, Sao, Pha lê & Huy hiệu xuyên thiết bị qua `user_meta` (`math_knight_save_data`), và tự động gộp kỷ lục cá nhân cao nhất theo `user_id` trên Bảng Vàng (không làm trùng lặp tên khi chơi nhiều lần).
 - **🔄 Tự động cập nhật trực tiếp từ GitHub Releases:**
   - Kiểm tra và cập nhật phiên bản mới 1-Click ngay trong trang **Plugins** của WordPress (chỉ cập nhật từ gói phát hành `.zip` chính thức trong mục **Releases**).
 
@@ -100,4 +102,4 @@ hiep-si-toan-hoc/
 - **🌐 Website:** [https://techsharevn.com](https://techsharevn.com)
 - **📞 Điện thoại:** [0949 897 293](tel:0949897293)
 - **✉️ Email:** [thanh.web1001@gmail.com](mailto:thanh.web1001@gmail.com)
-- **📦 Phiên bản:** `v1.1` (2026 — GPL-2.0-or-later)
+- **📦 Phiên bản:** `v1.2` (2026 — GPL-2.0-or-later)
