@@ -30,6 +30,7 @@ def collect_plugin_files():
         "style.css",
         "uninstall.php",
         "index.html",
+        "README.md",
     ]
     for fname in root_files:
         fpath = ROOT_DIR / fname
@@ -45,14 +46,6 @@ def collect_plugin_files():
                     full_path = Path(dirpath) / fn
                     rel_path = full_path.relative_to(ROOT_DIR).as_posix()
                     entries.append((full_path, f"{PLUGIN_SLUG}/{rel_path}"))
-
-    # 3. Các file tài liệu Markdown trong docs/*.md (Loại bỏ hoàn toàn docs/pdf/)
-    docs_dir = ROOT_DIR / "docs"
-    if docs_dir.is_dir():
-        for md_file in sorted(docs_dir.glob("*.md")):
-            if md_file.is_file():
-                rel_path = md_file.relative_to(ROOT_DIR).as_posix()
-                entries.append((md_file, f"{PLUGIN_SLUG}/{rel_path}"))
 
     return entries
 

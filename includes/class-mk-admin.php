@@ -43,8 +43,8 @@ class MK_Admin {
 	 */
 	public static function register_admin_menus() {
 		add_menu_page(
-			__( 'Hiệp Sĩ Toán Học - Quản lý Game Toán Lớp 3', 'hiep-si-toan-hoc' ),
-			__( 'Hiệp Sĩ Toán 3', 'hiep-si-toan-hoc' ),
+			__( 'Hiệp Sĩ Toán Học Lớp 3', 'hiep-si-toan-hoc' ),
+			__( 'Hiệp Sĩ Toán Học Lớp 3', 'hiep-si-toan-hoc' ),
 			'manage_options',
 			self::PAGE_SLUG,
 			array( __CLASS__, 'render_admin_page' ),
@@ -53,8 +53,8 @@ class MK_Admin {
 		);
 
 		add_options_page(
-			__( 'Hiệp Sĩ Toán Học - Cài đặt & Bảng điểm', 'hiep-si-toan-hoc' ),
-			__( 'Hiệp Sĩ Toán Học', 'hiep-si-toan-hoc' ),
+			__( 'Hiệp Sĩ Toán Học Lớp 3', 'hiep-si-toan-hoc' ),
+			__( 'Hiệp Sĩ Toán Học Lớp 3', 'hiep-si-toan-hoc' ),
 			'manage_options',
 			self::PAGE_SLUG,
 			array( __CLASS__, 'render_admin_page' )
@@ -431,10 +431,10 @@ class MK_Admin {
 					<span class="mk-admin-brand__logo" aria-hidden="true">🛡️</span>
 					<div>
 						<h1 class="mk-admin-brand__title">
-							Hiệp Sĩ Toán Học: Giải Cứu Rừng Pha Lê
+							Hiệp Sĩ Toán Học Lớp 3
 							<span class="mk-admin-version-pill">v<?php echo esc_html( MK_PLUGIN_VERSION ); ?></span>
 						</h1>
-						<p class="mk-admin-brand__sub">Toán Lớp 3 • Bộ sách Kết nối tri thức với cuộc sống (GDPT 2018) • 5 Ải Tập 1, 5 Ải Tập 2 &amp; Tổng hợp</p>
+						<p class="mk-admin-brand__sub">Giải Cứu Rừng Pha Lê • Bộ sách Kết nối tri thức với cuộc sống (GDPT 2018) • 5 Ải Tập 1, 5 Ải Tập 2 &amp; Tổng hợp</p>
 					</div>
 				</div>
 			</div>
@@ -1081,7 +1081,7 @@ class MK_Admin {
 									<tr>
 										<td class="mk-ts-label">📦 Plugin</td>
 										<td class="mk-ts-val">
-											Hiệp Sĩ Toán Học: Giải Cứu Rừng Pha Lê v<?php echo esc_html( MK_PLUGIN_VERSION ); ?>
+											Hiệp Sĩ Toán Học Lớp 3 v<?php echo esc_html( MK_PLUGIN_VERSION ); ?>
 										</td>
 									</tr>
 									<tr>

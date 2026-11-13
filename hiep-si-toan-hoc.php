@@ -1,6 +1,6 @@
 <?php
 /**
- * Plugin Name:       Hiệp Sĩ Toán Học: Giải Cứu Rừng Pha Lê (Toán Lớp 3 - Kết Nối Tri Thức)
+ * Plugin Name:       Hiệp Sĩ Toán Học Lớp 3
  * Plugin URI:        https://techsharevn.com
  * Description:       Web Game nhập vai giáo dục môn Toán Lớp 3 bám sát bộ sách Kết nối tri thức với cuộc sống (GDPT 2018). Tích hợp Custom Web Component <math-knight-game> (Shadow DOM), Shortcode [hiep_si_toan_hoc], Gutenberg Block, Bảng xếp hạng REST API và Trang quản trị Giáo viên.
  * Version:           1.0

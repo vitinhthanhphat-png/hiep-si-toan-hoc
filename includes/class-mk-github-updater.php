@@ -336,7 +336,7 @@ class MK_GitHub_Updater {
 		$status = self::get_release_status( false );
 
 		$info                = new stdClass();
-		$info->name          = 'Hiệp Sĩ Toán Học: Giải Cứu Rừng Pha Lê (Toán Lớp 3 - Kết Nối Tri Thức)';
+		$info->name          = 'Hiệp Sĩ Toán Học Lớp 3';
 		$info->slug          = 'hiep-si-toan-hoc';
 		$info->version       = $status['latest_version'];
 		$info->author        = '<a href="https://techsharevn.com" target="_blank" rel="noopener">Trần Vĩ Thành (Techshare VN)</a>';
