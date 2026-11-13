@@ -2,7 +2,7 @@
 
 **Giải pháp Web & Plugin WordPress Giáo dục Tương tác môn Toán Lớp 3 — Bộ sách Kết nối tri thức với cuộc sống (GDPT 2018)**
 
-[![Phiên bản](https://img.shields.io/badge/Version-1.2-007a33?style=flat-square)](https://github.com/vitinhthanhphat-png/hiep-si-toan-hoc/releases)
+[![Phiên bản](https://img.shields.io/badge/Version-1.3-007a33?style=flat-square)](https://github.com/vitinhthanhphat-png/hiep-si-toan-hoc/releases)
 [![WordPress](https://img.shields.io/badge/WordPress-5.8%2B-21759b?style=flat-square)](https://wordpress.org)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-777bb4?style=flat-square)](https://php.net)
 [![Tác giả](https://img.shields.io/badge/Author-Techshare%20VN-007a33?style=flat-square)](https://techsharevn.com)
@@ -26,6 +26,8 @@
   - Tự động đọc đề bài, gợi ý và quy tắc của Rô-bốt bằng tiếng Việt rõ ràng; hiệu ứng âm thanh tổng hợp 100% bằng code (không phụ thuộc file `.mp3` bên ngoài).
 - **🛡️ Cô lập giao diện tuyệt đối với Shadow DOM (`<math-knight-game>`):**
   - Không bao giờ xung đột CSS/JS với bất kỳ Theme WordPress nào (Astra, Flatsome, GeneratePress, Elementor, Divi...).
+- **📱 Responsive Đa Thiết Bị & Tương Thích Mọi Khung Bài Viết WordPress (`@container` — `v1.3`):**
+  - Kiến trúc **Container-First Responsive (`container-type: inline-size` + `@container`)** tự động nhận diện độ rộng thực tế của cột bài viết WordPress (kể cả trang có Sidebar hẹp `< 920px`, Tablet `< 700px` hay Điện thoại `< 520px`) để chuyển đổi lưới Bản đồ 5 Ải, 8 Huy hiệu, Sổ tay Bí kíp và Sàn đấu mượt mà, co giãn chiều cao tự nhiên không bao giờ bị cắt chữ hay tràn khung.
 - **🏆 Bảng Vàng Kỷ Lục Hybrid (`MySQL REST API` + `LocalStorage`):**
   - Tự động lưu điểm vào bảng cơ sở dữ liệu `wp_math_knight_scores` kèm cơ chế dự phòng Offline trên trình duyệt và xuất báo cáo CSV (Excel UTF-8 BOM) cho giáo viên.
 - **👤 Nhận diện Tài khoản WordPress Đăng nhập & Đồng bộ Đám mây (`v1.2`):**
@@ -104,7 +106,7 @@ hiep-si-toan-hoc/
 - **🌐 Website:** [https://techsharevn.com](https://techsharevn.com)
 - **📞 Điện thoại:** [0949 897 293](tel:0949897293)
 - **✉️ Email:** [thanh.web1001@gmail.com](mailto:thanh.web1001@gmail.com)
-- **📦 Phiên bản:** `v1.2` (2026 — GPL-2.0-or-later)
+- **📦 Phiên bản:** `v1.3` (2026 — GPL-2.0-or-later)
 
 ### ☕ Buy Me a Coffee (Ủng Hộ Tác Giả)
 

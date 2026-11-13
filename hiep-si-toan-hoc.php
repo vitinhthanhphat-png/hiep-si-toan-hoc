@@ -3,7 +3,7 @@
  * Plugin Name:       Hiệp Sĩ Toán Học Lớp 3
  * Plugin URI:        https://techsharevn.com
  * Description:       Web Game nhập vai giáo dục môn Toán Lớp 3 bám sát bộ sách Kết nối tri thức với cuộc sống (GDPT 2018). Tích hợp Custom Web Component <math-knight-game> (Shadow DOM), Shortcode [hiep_si_toan_hoc], Gutenberg Block, Bảng xếp hạng REST API và Trang quản trị Giáo viên.
- * Version:           1.2
+ * Version:           1.3
  * Requires at least: 5.8
  * Requires PHP:      7.4
  * Author:            Trần Vĩ Thành (Techshare VN)
@@ -24,7 +24,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 /**
  * Định nghĩa các hằng số cốt lõi của Plugin.
  */
-define( 'MK_PLUGIN_VERSION', '1.2' );
+define( 'MK_PLUGIN_VERSION', '1.3' );
 define( 'MK_DB_VERSION', '1.0' );
 define( 'MK_GITHUB_REPO', 'vitinhthanhphat-png/hiep-si-toan-hoc' );
 define( 'MK_PLUGIN_FILE', __FILE__ );

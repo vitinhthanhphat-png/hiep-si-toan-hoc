@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * HIỆP SĨ TOÁN HỌC: GIẢI CỨU RỪNG PHA LÊ (MATH KNIGHT GRADE 3) - v1.2
+ * HIỆP SĨ TOÁN HỌC: GIẢI CỨU RỪNG PHA LÊ (MATH KNIGHT GRADE 3) - v1.3
  * Bộ sách: Toán 3 - Kết nối tri thức với cuộc sống (Tập 1 & Tập 2 - GDPT 2018)
  * Kiến trúc: Web Component <math-knight-game> (Shadow DOM Isolation)
  * Phụ thuộc: 100% Vanilla ES6 JS + SVG/Canvas + Web Audio API (Zero External Deps)
@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const MK_VERSION = '1.2';
+  const MK_VERSION = '1.3';
 
   /* ==========================================================================
    * 0. DỮ LIỆU CẤU HÌNH CỐT TRUYỆN 5 ẢI, 8 HUY HIỆU & SỔ TAY BÍ KÍP KẾT NỐI TRI THỨC
@@ -3708,6 +3708,8 @@
       box-sizing: border-box;
       user-select: none;
       -webkit-user-select: none;
+      container-type: inline-size;
+      container-name: mkshell;
     }
     :host([standalone="true"]),
     :host(.mk-host-fullscreen),
@@ -3737,11 +3739,12 @@
       width: 0;
       height: 0;
     }
-    /* Khung chính 2.5D Paper-Cut Storybook - Lấp đầy 100% màn hình khi chạy độc lập / Fullscreen */
+    /* Khung chính 2.5D Paper-Cut Storybook - Co giãn tự nhiên khi nhúng WordPress & Lấp đầy 100% khi Fullscreen */
     .mk-shell {
       position: relative;
       width: 100%;
-      height: clamp(600px, 88dvh, 820px);
+      min-height: clamp(580px, 78dvh, 760px);
+      height: auto;
       margin: 0 auto;
       background:
         radial-gradient(circle at 12% 18%, rgba(254, 240, 138, 0.55) 0%, transparent 38%),
@@ -3765,6 +3768,7 @@
       border-radius: 0 !important;
       border: none !important;
       box-shadow: none !important;
+      overflow: hidden !important;
     }
     .mk-fx-canvas {
       position: absolute;
@@ -3774,17 +3778,17 @@
       pointer-events: none;
       z-index: 35;
     }
-    /* Tầng 1: Thanh HUD / Topbar Paper-Cut Sáng Tươi (~58px) */
+    /* Tầng 1: Thanh HUD / Topbar Paper-Cut Sáng Tươi (Tự động xuống dòng gọn đẹp trong khung hẹp) */
     .mk-topbar,
     .mk-hud-top {
-      height: 58px;
-      min-height: 58px;
-      max-height: 58px;
+      min-height: 54px;
+      height: auto;
       display: flex;
       align-items: center;
       justify-content: space-between;
-      gap: 10px;
-      padding: 0 20px;
+      flex-wrap: wrap;
+      gap: 8px 12px;
+      padding: 8px 16px;
       background: rgba(255, 255, 255, 0.92);
       backdrop-filter: blur(8px);
       color: #0F3D5E;
@@ -3797,7 +3801,8 @@
     .mk-hud-right {
       display: flex;
       align-items: center;
-      gap: 8px;
+      flex-wrap: wrap;
+      gap: 6px 8px;
       flex-shrink: 0;
     }
     .mk-hud-stage-title {
@@ -3872,7 +3877,7 @@
       align-items: center;
       gap: 8px;
       font-weight: 900;
-      font-size: 1.08rem;
+      font-size: 1.02rem;
       cursor: pointer;
       color: #0369A1;
       white-space: nowrap;
@@ -3881,26 +3886,27 @@
       background: #FEF08A;
       color: #854D0E;
       border: 2px solid #FACC15;
-      font-size: 0.75rem;
+      font-size: 0.74rem;
       font-weight: 900;
-      padding: 2px 10px;
+      padding: 2px 9px;
       border-radius: 999px;
       box-shadow: 0 2px 0 #FACC15;
     }
     .mk-top-actions {
       display: flex;
       align-items: center;
-      gap: 8px;
-      flex-wrap: nowrap;
+      justify-content: flex-end;
+      gap: 6px;
+      flex-wrap: wrap;
     }
     .mk-icon-btn {
       background: #F0F9FF;
       color: #0369A1;
       border: 2px solid #BAE6FD;
       border-radius: 14px;
-      padding: 5px 12px;
+      padding: 5px 10px;
       font-family: inherit;
-      font-size: 0.84rem;
+      font-size: 0.81rem;
       font-weight: 800;
       cursor: pointer;
       box-shadow: 0 3px 0 #BAE6FD;
@@ -3959,17 +3965,22 @@
       box-shadow: 0 3px 0 #E11D48;
       animation: mkPulse 0.7s infinite alternate;
     }
-    /* Vùng nội dung chính - Tuyệt đối không có thanh cuộn (Zero Scrollbar) */
+    /* Vùng nội dung chính - Co giãn tự nhiên khi nhúng WordPress & Khóa khít khi Fullscreen */
     .mk-main {
       flex: 1;
-      min-height: 0;
-      height: calc(100% - 58px);
+      min-height: calc(100% - 58px);
+      height: auto;
       padding: 14px 20px;
       display: flex;
       flex-direction: column;
       justify-content: center;
       overflow: hidden;
       z-index: 5;
+    }
+    :host([standalone="true"]) .mk-main,
+    .mk-shell.mk-fullscreen .mk-main {
+      height: calc(100% - 58px);
+      overflow: hidden;
     }
     .mk-main.mk-playing-layout {
       padding: 10px 18px 14px 18px;
@@ -4542,11 +4553,11 @@
       margin-top: 3px;
       font-weight: 700;
     }
-    /* Màn hình Khởi đầu (Start Screen) - 2.5D Paper-Cut Storybook, Vừa khít 100% không cuộn */
+    /* Màn hình Khởi đầu (Start Screen) - 2.5D Paper-Cut Storybook, Co giãn mượt mà theo khung nhúng */
     .mk-hero-banner {
       width: 100%;
-      height: 100%;
-      max-height: 100%;
+      height: auto;
+      min-height: 100%;
       display: grid;
       grid-template-columns: minmax(0, 1.32fr) minmax(0, 0.68fr);
       gap: clamp(14px, 2.2vw, 24px);
@@ -4554,7 +4565,7 @@
       background: #FFFDF9;
       border: 3px solid #FFFFFF;
       border-radius: 28px;
-      padding: clamp(12px, 2vh, 22px) clamp(18px, 2.6vw, 32px);
+      padding: clamp(14px, 2vh, 22px) clamp(16px, 2.4vw, 30px);
       box-shadow: 0 8px 0 #FDE68A, 0 22px 44px -10px rgba(245, 158, 11, 0.16);
       overflow: hidden;
       box-sizing: border-box;
@@ -4704,23 +4715,18 @@
       font-size: 0.95rem;
       color: #0F3D5E;
     }
-    /* CTA Button Row - Luôn nằm gọn trên 1 hàng ngang duy nhất (No CTA Wrap) */
+    /* CTA Button Row - Tự động xuống hàng gọn đẹp khi cột trái hẹp, không bao giờ tràn/cắt đáy */
     .mk-btn-row {
       display: flex;
-      flex-wrap: nowrap;
+      flex-wrap: wrap;
       align-items: center;
-      gap: 10px;
-    }
-    @media (max-width: 680px) {
-      .mk-btn-row {
-        flex-wrap: wrap;
-      }
+      gap: 8px;
     }
     .mk-btn {
-      min-height: 46px;
-      padding: 9px 18px;
+      min-height: 42px;
+      padding: 8px 14px;
       font-family: inherit;
-      font-size: 0.92rem;
+      font-size: 0.88rem;
       font-weight: 900;
       border: none;
       border-radius: 16px;
@@ -4729,6 +4735,7 @@
       align-items: center;
       justify-content: center;
       gap: 6px;
+      flex: 1 1 auto;
       white-space: nowrap;
       transition: transform 0.12s ease, filter 0.12s ease, box-shadow 0.12s ease;
     }
@@ -5312,6 +5319,90 @@
     }
     .mk-hero-hit {
       animation: mkHeroFlash 0.5s ease;
+    }
+
+    /* ========================================================================
+     * CONTAINER-FIRST RESPONSIVE (@container mkshell) CHO MỌI KHUNG BÀI VIẾT WP
+     * ======================================================================== */
+    @container mkshell (max-width: 960px) {
+      .mk-hero-banner {
+        grid-template-columns: minmax(0, 1.22fr) minmax(220px, 0.78fr);
+        padding: 14px 18px;
+        gap: 14px;
+      }
+      .mk-map-panel,
+      .mk-handbook-panel,
+      .mk-screen-card {
+        height: auto;
+        overflow: visible;
+      }
+      .mk-map-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+      .mk-badge-grid,
+      .mk-badges-strip {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+      .mk-handbook-grid,
+      .mk-hb-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @container mkshell (max-width: 740px) {
+      .mk-topbar,
+      .mk-hud-top {
+        justify-content: center;
+        padding: 8px 12px;
+      }
+      .mk-top-actions {
+        justify-content: center;
+        width: 100%;
+      }
+      .mk-hero-banner {
+        grid-template-columns: minmax(0, 1fr);
+        padding: 14px;
+      }
+      .mk-map-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .mk-badge-grid,
+      .mk-badges-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .mk-handbook-grid,
+      .mk-hb-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .mk-parchment-body.has-visual {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .mk-hb-modal-body {
+        grid-template-columns: minmax(0, 1fr);
+        overflow-y: auto;
+      }
+    }
+
+    @container mkshell (max-width: 520px) {
+      .mk-book-tabs,
+      .mk-avatar-grid,
+      .mk-options-grid,
+      .mk-map-grid,
+      .mk-handbook-grid,
+      .mk-hb-grid {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      .mk-badge-grid,
+      .mk-badges-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+      .mk-stage-fighters {
+        padding: 0 6px;
+      }
+      .mk-char-svg {
+        width: 74px;
+        height: 74px;
+      }
     }
   `;
 
