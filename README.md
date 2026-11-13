@@ -89,7 +89,9 @@ hiep-si-toan-hoc/
     │   ├── sgk-assets.js                # Kho 16 hình ảnh minh họa gốc SGK (Base64 Offline-first)
     │   ├── math-knight-bundle.js        # 5 Core Modules & Custom Element <math-knight-game>
     │   └── block-editor.js              # Giao diện kéo thả Gutenberg Block Editor
-    └── images/sgk/                      # Bộ ảnh minh họa gốc SGK Toán 3 Kết nối tri thức
+    └── images/
+        ├── 970436-0251002668136-compact2.svg # Mã QR Vietcombank Ủng hộ Tác giả (Buy Me a Coffee)
+        └── sgk/                         # Bộ ảnh minh họa gốc SGK Toán 3 Kết nối tri thức
 ```
 
 ---
@@ -103,3 +105,15 @@ hiep-si-toan-hoc/
 - **📞 Điện thoại:** [0949 897 293](tel:0949897293)
 - **✉️ Email:** [thanh.web1001@gmail.com](mailto:thanh.web1001@gmail.com)
 - **📦 Phiên bản:** `v1.2` (2026 — GPL-2.0-or-later)
+
+### ☕ Buy Me a Coffee (Ủng Hộ Tác Giả)
+
+Nếu bạn thấy plugin **Hiệp Sĩ Toán Học Lớp 3** hữu ích cho học sinh và nhà trường, bạn có thể mời tác giả một ly cà phê để tiếp tục phát triển thêm nhiều học liệu số miễn phí chất lượng cao:
+
+- **🏦 Ngân hàng:** **Ngân Hàng Vietcombank**
+- **💳 Số tài khoản:** **`0251002668136`**
+- **👤 Chủ tài khoản:** **Trần Vĩ Thành**
+
+<p align="left">
+  <img src="assets/images/970436-0251002668136-compact2.svg" alt="VietQR Vietcombank 0251002668136 - Trần Vĩ Thành" width="260" />
+</p>

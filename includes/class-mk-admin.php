@@ -429,11 +429,96 @@ class MK_Admin {
 		$inline_css_path = MK_PLUGIN_DIR . 'assets/css/admin-style.css';
 		?>
 		<?php if ( file_exists( $inline_css_path ) ) : ?>
-			<style id="mk-admin- critical-css">
+			<style id="mk-admin-critical-css">
 				<?php
 				// phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- Static plugin admin stylesheet owned by plugin.
 				echo file_get_contents( $inline_css_path );
 				?>
+				.mk-ts-author-wrap {
+					display: grid;
+					grid-template-columns: 1fr;
+					gap: 22px;
+					max-width: 1120px;
+					align-items: stretch;
+				}
+				@media (min-width: 960px) {
+					.mk-ts-author-wrap {
+						grid-template-columns: 1fr 1fr;
+					}
+				}
+				.mk-ts-author-card,
+				.mk-ts-donate-card {
+					background: #ffffff;
+					border: 1px solid #cbd5e1;
+					border-radius: 14px;
+					padding: 24px 26px;
+					box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+					box-sizing: border-box;
+				}
+				.mk-ts-donate-card {
+					display: flex;
+					flex-direction: column;
+					justify-content: space-between;
+					gap: 16px;
+					border-top: 4px solid #007a33;
+				}
+				.mk-ts-donate-header h2 {
+					margin: 0 0 6px 0;
+					font-size: 18px;
+					font-weight: 700;
+					color: #0f172a;
+				}
+				.mk-ts-donate-header p {
+					margin: 0;
+					font-size: 13.5px;
+					color: #475569;
+					line-height: 1.5;
+				}
+				.mk-ts-donate-body {
+					display: flex;
+					flex-wrap: wrap;
+					align-items: center;
+					justify-content: space-between;
+					gap: 18px;
+				}
+				.mk-ts-donate-info {
+					flex: 1 1 240px;
+					min-width: 0;
+				}
+				.mk-ts-stk-code {
+					font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+					font-size: 15px;
+					font-weight: 700;
+					color: #007a33;
+					background: #f0fdf4;
+					border: 1px solid #bbf7d0;
+					padding: 3px 8px;
+					border-radius: 6px;
+					margin-right: 6px;
+				}
+				.mk-copy-btn {
+					cursor: pointer;
+					vertical-align: middle;
+				}
+				.mk-ts-qr-box {
+					flex: 0 0 auto;
+					display: flex;
+					flex-direction: column;
+					align-items: center;
+					justify-content: center;
+					margin: 0 auto;
+				}
+				.mk-ts-qr-img {
+					display: block;
+					width: 100%;
+					max-width: 220px;
+					height: auto;
+					border-radius: 12px;
+					border: 1px solid #e2e8f0;
+					padding: 8px;
+					background: #ffffff;
+					box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+				}
 			</style>
 		<?php endif; ?>
 		<div class="wrap mk-admin-wrap">
@@ -1027,11 +1112,11 @@ class MK_Admin {
 			</div><!-- /#mk-panel-updater -->
 
 			<!-- ================================================================
-			     TAB 4: THÔNG TIN TÁC GIẢ (TECHSHARE VN)
+			     TAB 4: THÔNG TIN TÁC GIẢ & BUY ME A COFFEE (TECHSHARE VN)
 			     ================================================================ -->
 			<div id="mk-panel-author" class="mk-tab-panel <?php echo 'author' === $active_tab ? 'is-active' : ''; ?>">
 				<div class="mk-ts-author-wrap">
-					<!-- Card Thông tin Tác giả Techshare VN -->
+					<!-- Card 1: Thông tin Tác giả Techshare VN -->
 					<div class="mk-ts-author-card">
 						<div class="mk-ts-avatar" aria-hidden="true">TS</div>
 						<div class="mk-ts-author-body">
@@ -1080,6 +1165,50 @@ class MK_Admin {
 							</table>
 						</div>
 					</div>
+
+					<!-- Card 2: Box Buy Me a Coffee (Vietcombank VietQR) -->
+					<div class="mk-ts-donate-card">
+						<div class="mk-ts-donate-header">
+							<h2>☕ Buy Me a Coffee — Ủng Hộ Tác Giả</h2>
+							<p>Nếu plugin hữu ích cho công việc giảng dạy và website của bạn, bạn có thể mời tác giả một tách cà phê qua mã VietQR bên dưới:</p>
+						</div>
+
+						<div class="mk-ts-donate-body">
+							<div class="mk-ts-donate-info">
+								<table class="mk-ts-info-table" role="presentation">
+									<tbody>
+										<tr>
+											<td class="mk-ts-label">🏦 Ngân hàng</td>
+											<td class="mk-ts-val">
+												<strong>Ngân Hàng Vietcombank</strong>
+											</td>
+										</tr>
+										<tr>
+											<td class="mk-ts-label">💳 Số tài khoản</td>
+											<td class="mk-ts-val">
+												<code class="mk-ts-stk-code">0251002668136</code>
+												<button type="button" class="button button-small mk-copy-btn" data-copy="0251002668136">Sao chép</button>
+											</td>
+										</tr>
+										<tr>
+											<td class="mk-ts-label">👤 Chủ tài khoản</td>
+											<td class="mk-ts-val">
+												<strong>Trần Vĩ Thành</strong>
+											</td>
+										</tr>
+									</tbody>
+								</table>
+							</div>
+
+							<div class="mk-ts-qr-box">
+								<img
+									src="<?php echo esc_url( MK_PLUGIN_URL . 'assets/images/970436-0251002668136-compact2.svg' ); ?>"
+									alt="VietQR Ngân Hàng Vietcombank - 0251002668136 - Trần Vĩ Thành"
+									class="mk-ts-qr-img"
+								/>
+							</div>
+						</div>
+					</div>
 				</div>
 			</div><!-- /#mk-panel-author -->
 
@@ -1092,20 +1221,49 @@ class MK_Admin {
 					updater: document.getElementById('mk-panel-updater'),
 					author: document.getElementById('mk-panel-author')
 				};
-				if (!tabs.length) return;
-				tabs.forEach(function(tab) {
-					tab.addEventListener('click', function(e) {
-						var targetKey = tab.getAttribute('data-mk-tab');
-						if (!panels[targetKey]) return;
-						e.preventDefault();
-						tabs.forEach(function(t) { t.classList.toggle('is-active', t === tab); });
-						Object.keys(panels).forEach(function(k) {
-							if (panels[k]) {
-								panels[k].classList.toggle('is-active', k === targetKey);
+				if (tabs.length) {
+					tabs.forEach(function(tab) {
+						tab.addEventListener('click', function(e) {
+							var targetKey = tab.getAttribute('data-mk-tab');
+							if (!panels[targetKey]) return;
+							e.preventDefault();
+							tabs.forEach(function(t) { t.classList.toggle('is-active', t === tab); });
+							Object.keys(panels).forEach(function(k) {
+								if (panels[k]) {
+									panels[k].classList.toggle('is-active', k === targetKey);
+								}
+							});
+							if (window.history && window.history.replaceState) {
+								window.history.replaceState(null, '', tab.getAttribute('href'));
 							}
 						});
-						if (window.history && window.history.replaceState) {
-							window.history.replaceState(null, '', tab.getAttribute('href'));
+					});
+				}
+
+				var copyBtns = document.querySelectorAll('.mk-copy-btn[data-copy]');
+				copyBtns.forEach(function(btn) {
+					btn.addEventListener('click', function() {
+						var text = btn.getAttribute('data-copy') || '';
+						if (!text) return;
+						var originalLabel = btn.innerText;
+						var showCopied = function() {
+							btn.innerText = 'Đã chép!';
+							setTimeout(function() {
+								btn.innerText = originalLabel;
+							}, 1800);
+						};
+						if (navigator.clipboard && navigator.clipboard.writeText) {
+							navigator.clipboard.writeText(text).then(showCopied).catch(function() {
+								showCopied();
+							});
+						} else {
+							var tempInput = document.createElement('input');
+							tempInput.value = text;
+							document.body.appendChild(tempInput);
+							tempInput.select();
+							try { document.execCommand('copy'); } catch (err) {}
+							document.body.removeChild(tempInput);
+							showCopied();
 						}
 					});
 				});
