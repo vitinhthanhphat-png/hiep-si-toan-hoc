@@ -508,9 +508,9 @@ if (indexHtmlExists) {
   const adminFullCode = fs.readFileSync(path.join(ROOT_DIR, 'includes/class-mk-admin.php'), 'utf8');
 
   assertCheck(
-    mainPluginCode.includes("define( 'MK_PLUGIN_VERSION', '1.0' )") &&
-      bundleCode.includes("const MK_VERSION = '1.0'"),
-    'Phiên bản khởi đầu v1.0 đồng bộ giữa WordPress Plugin (MK_PLUGIN_VERSION = 1.0) và Web Component (MK_VERSION = 1.0)'
+    mainPluginCode.includes("define( 'MK_PLUGIN_VERSION', '1.1' )") &&
+      bundleCode.includes("const MK_VERSION = '1.1'"),
+    'Phiên bản v1.1 đồng bộ giữa WordPress Plugin (MK_PLUGIN_VERSION = 1.1) và Web Component (MK_VERSION = 1.1)'
   );
   assertCheck(
     adminFullCode.includes('sanitize_csv_cell') &&

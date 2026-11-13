@@ -1,6 +1,6 @@
 /**
  * ============================================================================
- * HIỆP SĨ TOÁN HỌC: GIẢI CỨU RỪNG PHA LÊ (MATH KNIGHT GRADE 3) - v1.0
+ * HIỆP SĨ TOÁN HỌC: GIẢI CỨU RỪNG PHA LÊ (MATH KNIGHT GRADE 3) - v1.1
  * Bộ sách: Toán 3 - Kết nối tri thức với cuộc sống (Tập 1 & Tập 2 - GDPT 2018)
  * Kiến trúc: Web Component <math-knight-game> (Shadow DOM Isolation)
  * Phụ thuộc: 100% Vanilla ES6 JS + SVG/Canvas + Web Audio API (Zero External Deps)
@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  const MK_VERSION = '1.0';
+  const MK_VERSION = '1.1';
 
   /* ==========================================================================
    * 0. DỮ LIỆU CẤU HÌNH CỐT TRUYỆN 5 ẢI, 8 HUY HIỆU & SỔ TAY BÍ KÍP KẾT NỐI TRI THỨC
