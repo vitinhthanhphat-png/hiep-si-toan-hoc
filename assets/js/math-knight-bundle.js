@@ -559,13 +559,30 @@
     }
 
     playSlash() {
-      this.playTone(920, 'triangle', 0.09, 0, 0.18, 260);
-      this.playTone(1350, 'sine', 0.07, 0.03, 0.12, 480);
+      // Hiệu ứng vung kiếm / phép thuật pha lê kiểu Jsfxr (Frequency Sweep + Chime)
+      this.playTone(980, 'triangle', 0.085, 0, 0.18, 240);
+      this.playTone(1480, 'sine', 0.075, 0.025, 0.14, 520);
+      this.playTone(1960, 'sine', 0.06, 0.05, 0.1, 880);
+    }
+
+    playBossImpact() {
+      // Hiệu ứng nổ tinh thể khi Boss trúng đòn (Jsfxr Hit/Hurt + Crystal Sparkle)
+      this.playTone(180, 'sawtooth', 0.11, 0.04, 0.14, 65);
+      this.playTone(1567.98, 'sine', 0.09, 0.08, 0.12, 2093.0);
+    }
+
+    playTreasureChestOpen() {
+      // Hiệu ứng mở Rương Kho Báu Pha Lê (Jsfxr Powerup / Coin Arpeggio)
+      const coins = [587.33, 783.99, 987.77, 1174.66, 1567.98, 1975.53];
+      coins.forEach((f, idx) => {
+        this.playTone(f, 'sine', 0.14, idx * 0.055, 0.18);
+      });
     }
 
     playCorrect(streak = 1) {
       // Hợp âm Đô trưởng đi lên vui tươi + Adaptive Pitch Scaling theo chuỗi đúng (streak)
       this.playSlash();
+      this.playBossImpact();
       const pitchScale = 1 + Math.min(8, Math.max(0, Number(streak) - 1)) * 0.035;
       const notes = [523.25, 659.25, 783.99, 1046.5]; // C5, E5, G5, C6
       notes.forEach((n, idx) => {
@@ -595,14 +612,15 @@
     }
 
     playStageClear() {
-      // Nhạc khải hoàn ca khôi phục Đá Pha Lê
+      // Nhạc khải hoàn ca khôi phục Đá Pha Lê + mở Rương Kho Báu
+      this.playTreasureChestOpen();
       const melody = [
-        { f: 523.25, d: 0.13, t: 0 },
-        { f: 659.25, d: 0.13, t: 0.11 },
-        { f: 783.99, d: 0.13, t: 0.22 },
-        { f: 1046.5, d: 0.28, t: 0.34 },
-        { f: 783.99, d: 0.13, t: 0.56 },
-        { f: 1046.5, d: 0.42, t: 0.68 }
+        { f: 523.25, d: 0.13, t: 0.15 },
+        { f: 659.25, d: 0.13, t: 0.26 },
+        { f: 783.99, d: 0.13, t: 0.37 },
+        { f: 1046.5, d: 0.28, t: 0.49 },
+        { f: 783.99, d: 0.13, t: 0.71 },
+        { f: 1046.5, d: 0.42, t: 0.83 }
       ];
       melody.forEach((m) => this.playTone(m.f, 'triangle', m.d, m.t, 0.22));
     }
@@ -808,7 +826,7 @@
      * Ải 4: Pháp Sư Cú Cổ Đại (#38BDF8)
      * Ải 5: Rồng Pha Lê Sapphire (#60A5FA)
      */
-    static renderBossSVG(stageId = 1, isHit = false, isAttacking = false) {
+    static renderBossSVG(stageId = 1, isHit = false, isAttacking = false, isEnraged = false) {
       const animClass = isHit ? 'mk-monster-hit' : isAttacking ? 'mk-monster-attack' : 'mk-float-idle';
       const paperFilter = `
         <defs>
@@ -816,99 +834,137 @@
             <feDropShadow dx="0" dy="4" stdDeviation="2.2" flood-color="#0F3D5E" flood-opacity="0.16"/>
           </filter>
         </defs>`;
+      const hitBurstOverlay = isHit
+        ? `<g class="mk-hit-burst" aria-hidden="true">
+             <polygon points="70,18 78,46 108,36 86,62 114,82 82,84 90,114 68,90 44,112 54,82 24,78 52,60 32,34 62,46" fill="#FEF08A" opacity="0.88"/>
+             <polygon points="70,30 76,52 98,44 82,64 102,78 78,80 84,102 68,84 50,100 58,78 36,74 56,62 42,42 64,52" fill="#FFFFFF" opacity="0.92"/>
+             <polygon points="24,26 27,34 35,34 29,39 31,47 24,42 17,47 19,39 13,34 21,34" fill="#FDE047"/>
+             <polygon points="116,28 119,36 127,36 121,41 123,49 116,44 109,49 111,41 105,36 113,36" fill="#38BDF8"/>
+           </g>`
+        : '';
+      const enragedHalo = isEnraged && !isHit
+        ? `<circle cx="70" cy="74" r="54" fill="rgba(251, 113, 133, 0.22)" class="mk-spin-halo"/>`
+        : '';
+
       switch (Number(stageId)) {
-        case 1: // Slime Xanh Bạc Hà
+        case 1: // Slime Xanh Bạc Hà (kèm Vương miện Hoàng gia & Biểu cảm trúng đòn)
           return `
           <svg viewBox="0 0 140 140" class="mk-char-svg ${animClass}" aria-label="Slime Xanh Bạc Hà">
             ${paperFilter}
             <ellipse cx="70" cy="124" rx="46" ry="8" fill="rgba(16, 185, 129, 0.20)"/>
+            ${enragedHalo}
             <g filter="url(#mkBossPaper1)">
-              <!-- Lớp giấy nền Mint -->
+              <!-- Lớp giấy nền Mint đa tầng -->
               <path d="M20 108 Q16 40 70 34 Q124 40 120 108 Q100 122 70 122 Q40 122 20 108 Z" fill="#6EE7B7"/>
               <path d="M25 106 Q22 46 70 40 Q118 46 115 106 Q96 118 70 118 Q44 118 25 106 Z" fill="#34D399"/>
-              <ellipse cx="52" cy="58" rx="14" ry="7" fill="#ECFDF5" opacity="0.7" transform="rotate(-18 52 58)"/>
-              <!-- Vương miện lá bạc hà Paper-Cut -->
-              <path d="M68 36 Q54 16 40 25 Q52 38 68 36 Z" fill="#10B981"/>
-              <path d="M72 36 Q86 14 100 25 Q88 38 72 36 Z" fill="#34D399"/>
-              <circle cx="70" cy="34" r="5" fill="#FEF08A"/>
-              <!-- Đôi mắt tròn dễ thương -->
-              <circle cx="52" cy="78" r="9" fill="#FFFFFF"/>
-              <circle cx="54" cy="78" r="4.5" fill="#065F46"/>
-              <circle cx="55.5" cy="76.5" r="1.6" fill="#FFFFFF"/>
-              <circle cx="88" cy="78" r="9" fill="#FFFFFF"/>
-              <circle cx="86" cy="78" r="4.5" fill="#065F46"/>
-              <circle cx="87.5" cy="76.5" r="1.6" fill="#FFFFFF"/>
+              <ellipse cx="52" cy="58" rx="14" ry="7" fill="#ECFDF5" opacity="0.75" transform="rotate(-18 52 58)"/>
+              <circle cx="38" cy="70" r="3.5" fill="#FFFFFF" opacity="0.8"/>
+              <!-- Vương miện Vàng Ngọc Lục Bảo RPG -->
+              <polygon points="48,38 54,18 63,30 70,14 77,30 86,18 92,38" fill="#FBBF24"/>
+              <rect x="48" y="35" width="44" height="6" rx="3" fill="#FDE047"/>
+              <polygon points="70,21 75,28 70,35 65,28" fill="#10B981"/>
+              ${isHit
+                ? `<!-- Mắt choáng váng >< khi trúng đòn -->
+                   <path d="M44 72 L58 78 L44 84" fill="none" stroke="#065F46" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/>
+                   <path d="M96 72 L82 78 L96 84" fill="none" stroke="#065F46" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/>
+                   <circle cx="70" cy="96" r="7" fill="#065F46"/>`
+                : `<!-- Đôi mắt tròn dễ thương -->
+                   <circle cx="52" cy="78" r="9" fill="#FFFFFF"/>
+                   <circle cx="54" cy="78" r="4.5" fill="#065F46"/>
+                   <circle cx="55.5" cy="76.5" r="1.6" fill="#FFFFFF"/>
+                   <circle cx="88" cy="78" r="9" fill="#FFFFFF"/>
+                   <circle cx="86" cy="78" r="4.5" fill="#065F46"/>
+                   <circle cx="87.5" cy="76.5" r="1.6" fill="#FFFFFF"/>
+                   <path d="M56 94 Q70 104 84 94" fill="none" stroke="#065F46" stroke-width="3.5" stroke-linecap="round"/>`}
               <ellipse cx="42" cy="86" rx="5" ry="3" fill="#FDA4AF" opacity="0.7"/>
               <ellipse cx="98" cy="86" rx="5" ry="3" fill="#FDA4AF" opacity="0.7"/>
-              <path d="M56 94 Q70 104 84 94" fill="none" stroke="#065F46" stroke-width="3.5" stroke-linecap="round"/>
             </g>
+            ${hitBurstOverlay}
           </svg>`;
         case 2: // Goblin Bàn Tính
           return `
           <svg viewBox="0 0 140 140" class="mk-char-svg ${animClass}" aria-label="Goblin Bàn Tính">
             ${paperFilter}
             <ellipse cx="70" cy="126" rx="44" ry="8" fill="rgba(245, 158, 11, 0.20)"/>
+            ${enragedHalo}
             <g filter="url(#mkBossPaper2)">
               <!-- Thân áo Sunshine Amber -->
               <path d="M34 78 L26 122 L114 122 L106 78 Z" fill="#FBBF24"/>
               <path d="M42 78 L36 122 L104 122 L98 78 Z" fill="#FDE68A"/>
-              <!-- Tai nhọn Pastel Lime -->
+              <!-- Tai nhọn Pastel Lime & Khuyên tai vàng -->
               <polygon points="38,54 12,42 36,68" fill="#A3E635"/>
               <polygon points="102,54 128,42 104,68" fill="#A3E635"/>
+              <circle cx="22" cy="58" r="3.5" fill="#F59E0B"/>
               <!-- Đầu Goblin tròn -->
               <circle cx="70" cy="58" r="25" fill="#BEF264"/>
               <!-- Mũ chóp Vàng La Mã -->
               <path d="M42 42 L98 42 L70 12 Z" fill="#F59E0B"/>
               <rect x="40" y="38" width="60" height="7" rx="3.5" fill="#FEF08A"/>
               <text x="70" y="34" text-anchor="middle" font-size="11" font-weight="900" fill="#FFFFFF">XII</text>
-              <!-- Mắt & Nụ cười -->
-              <circle cx="59" cy="56" r="4.5" fill="#1E3A5F"/>
-              <circle cx="81" cy="56" r="4.5" fill="#1E3A5F"/>
-              <circle cx="60.5" cy="54.5" r="1.5" fill="#FFFFFF"/>
-              <circle cx="82.5" cy="54.5" r="1.5" fill="#FFFFFF"/>
-              <path d="M58 67 Q70 75 82 67" fill="none" stroke="#15803D" stroke-width="3" stroke-linecap="round"/>
-              <!-- Khung Bàn Tính Paper-Cut -->
+              ${isHit
+                ? `<path d="M52 51 L64 57 L52 63" fill="none" stroke="#1E3A5F" stroke-width="3.4" stroke-linecap="round"/>
+                   <path d="M88 51 L76 57 L88 63" fill="none" stroke="#1E3A5F" stroke-width="3.4" stroke-linecap="round"/>
+                   <ellipse cx="70" cy="70" rx="6" ry="5" fill="#15803D"/>`
+                : `<circle cx="59" cy="56" r="4.5" fill="#1E3A5F"/>
+                   <circle cx="81" cy="56" r="4.5" fill="#1E3A5F"/>
+                   <circle cx="60.5" cy="54.5" r="1.5" fill="#FFFFFF"/>
+                   <circle cx="82.5" cy="54.5" r="1.5" fill="#FFFFFF"/>
+                   <path d="M58 67 Q70 75 82 67" fill="none" stroke="#15803D" stroke-width="3" stroke-linecap="round"/>`}
+              <!-- Khung Bàn Tính Hoàng Kim Paper-Cut -->
               <rect x="42" y="84" width="56" height="34" rx="8" fill="#FFFFFF"/>
               <rect x="46" y="88" width="48" height="26" rx="5" fill="#FEF9C3"/>
+              <line x1="56" y1="88" x2="56" y2="114" stroke="#F59E0B" stroke-width="2"/>
+              <line x1="70" y1="88" x2="70" y2="114" stroke="#F59E0B" stroke-width="2"/>
+              <line x1="84" y1="88" x2="84" y2="114" stroke="#F59E0B" stroke-width="2"/>
               <circle cx="56" cy="96" r="4.5" fill="#FB7185"/>
               <circle cx="56" cy="106" r="4.5" fill="#FBBF24"/>
               <circle cx="70" cy="95" r="4.5" fill="#34D399"/>
               <circle cx="84" cy="105" r="4.5" fill="#38BDF8"/>
             </g>
+            ${hitBurstOverlay}
           </svg>`;
         case 3: // Người Đá Golem Tím Pastel
           return `
           <svg viewBox="0 0 140 140" class="mk-char-svg ${animClass}" aria-label="Người Đá Golem Tím">
             ${paperFilter}
             <ellipse cx="70" cy="126" rx="48" ry="8" fill="rgba(139, 92, 246, 0.20)"/>
+            ${enragedHalo}
             <g filter="url(#mkBossPaper3)">
-              <!-- Tinh thể pha lê trên vai -->
-              <polygon points="22,58 8,32 34,42" fill="#F472B6"/>
-              <polygon points="118,58 132,32 106,42" fill="#38BDF8"/>
+              <!-- Tinh thể pha lê trên vai đa diện -->
+              <polygon points="22,58 6,28 36,40" fill="#F472B6"/>
+              <polygon points="18,48 12,32 30,42" fill="#FBCFE8"/>
+              <polygon points="118,58 134,28 104,40" fill="#38BDF8"/>
+              <polygon points="122,48 128,32 110,42" fill="#BAE6FD"/>
               <!-- Thân Golem đa giác Paper-Cut -->
               <polygon points="28,122 18,62 44,24 96,24 122,62 112,122" fill="#A78BFA"/>
               <polygon points="36,118 28,64 48,30 92,30 112,64 104,118" fill="#C4B5FD"/>
               <polygon points="44,24 70,48 96,24" fill="#EDE9FE"/>
               <!-- Lõi năng lượng biểu thức phát sáng -->
-              <polygon points="70,72 86,90 70,108 54,90" fill="#FEF08A"/>
-              <polygon points="70,77 80,90 70,103 60,90" fill="#FFFFFF"/>
-              <!-- Đôi mắt sáng hiền hòa -->
-              <circle cx="54" cy="58" r="6" fill="#FEF9C3"/>
-              <circle cx="86" cy="58" r="6" fill="#FEF9C3"/>
-              <circle cx="54" cy="58" r="3" fill="#6D28D9"/>
-              <circle cx="86" cy="58" r="3" fill="#6D28D9"/>
+              <polygon points="70,70 88,90 70,110 52,90" fill="#FDE047"/>
+              <polygon points="70,76 81,90 70,104 59,90" fill="#FFFFFF"/>
+              ${isHit
+                ? `<path d="M47 53 L60 58 L47 63" fill="none" stroke="#FEF9C3" stroke-width="3.6" stroke-linecap="round"/>
+                   <path d="M93 53 L80 58 L93 63" fill="none" stroke="#FEF9C3" stroke-width="3.6" stroke-linecap="round"/>`
+                : `<circle cx="54" cy="58" r="6.5" fill="#FEF9C3"/>
+                   <circle cx="86" cy="58" r="6.5" fill="#FEF9C3"/>
+                   <circle cx="54" cy="58" r="3.2" fill="#6D28D9"/>
+                   <circle cx="86" cy="58" r="3.2" fill="#6D28D9"/>`}
               <rect x="56" y="112" width="28" height="4" rx="2" fill="#7C3AED"/>
             </g>
+            ${hitBurstOverlay}
           </svg>`;
         case 4: // Pháp Sư Cú Cổ Đại
           return `
           <svg viewBox="0 0 140 140" class="mk-char-svg ${animClass}" aria-label="Pháp Sư Cú Cổ Đại">
             ${paperFilter}
             <ellipse cx="70" cy="126" rx="42" ry="8" fill="rgba(14, 165, 233, 0.18)"/>
+            ${enragedHalo}
             <g filter="url(#mkBossPaper4)">
-              <!-- Đôi cánh Aqua Paper-Cut -->
+              <!-- Đôi cánh Aqua Paper-Cut & Trượng Sao -->
               <path d="M32 70 Q10 86 24 114 Q38 108 42 92 Z" fill="#38BDF8"/>
               <path d="M108 70 Q130 86 116 114 Q102 108 98 92 Z" fill="#38BDF8"/>
+              <rect x="114" y="48" width="5" height="72" rx="2.5" fill="#F59E0B" transform="rotate(8 116 84)"/>
+              <polygon points="118,38 122,46 130,46 124,51 126,59 118,54 110,59 112,51 106,46 114,46" fill="#FDE047"/>
               <!-- Thân Cú Thông Thái -->
               <ellipse cx="70" cy="84" rx="35" ry="38" fill="#7DD3FC"/>
               <ellipse cx="70" cy="90" rx="24" ry="27" fill="#FFFFFF"/>
@@ -920,44 +976,195 @@
               <circle cx="85" cy="58" r="13" fill="#FEF08A"/>
               <circle cx="55" cy="58" r="10" fill="#FFFFFF"/>
               <circle cx="85" cy="58" r="10" fill="#FFFFFF"/>
-              <circle cx="56" cy="58" r="4.5" fill="#0F3D5E"/>
-              <circle cx="84" cy="58" r="4.5" fill="#0F3D5E"/>
+              ${isHit
+                ? `<path d="M50 54 L60 58 L50 62" fill="none" stroke="#0F3D5E" stroke-width="3.2" stroke-linecap="round"/>
+                   <path d="M90 54 L80 58 L90 62" fill="none" stroke="#0F3D5E" stroke-width="3.2" stroke-linecap="round"/>`
+                : `<circle cx="56" cy="58" r="4.5" fill="#0F3D5E"/>
+                   <circle cx="84" cy="58" r="4.5" fill="#0F3D5E"/>
+                   <circle cx="57.5" cy="56.5" r="1.5" fill="#FFFFFF"/>
+                   <circle cx="85.5" cy="56.5" r="1.5" fill="#FFFFFF"/>`}
               <!-- Mỏ vàng & Mũ Pháp sư -->
               <polygon points="64,64 76,64 70,75" fill="#FBBF24"/>
               <ellipse cx="70" cy="41" rx="36" ry="7" fill="#0284C7"/>
               <path d="M38 41 L102 41 L70 10 Z" fill="#38BDF8"/>
               <polygon points="70,18 73,26 81,26 75,31 77,38 70,34 63,38 65,31 59,26 67,26" fill="#FEF08A"/>
             </g>
+            ${hitBurstOverlay}
           </svg>`;
         default: // Ải 5: Rồng Pha Lê Sapphire (Bright Pastel Sky & Gold)
           return `
           <svg viewBox="0 0 140 140" class="mk-char-svg ${animClass}" aria-label="Rồng Pha Lê Sapphire">
             ${paperFilter}
             <ellipse cx="70" cy="126" rx="50" ry="8" fill="rgba(59, 130, 246, 0.20)"/>
+            ${enragedHalo}
             <g filter="url(#mkBossPaper5)">
               <!-- Đôi cánh Pha Lê Sapphire Paper-Cut -->
               <path d="M40 68 L6 24 L18 66 L8 94 L42 86 Z" fill="#93C5FD"/>
               <path d="M38 68 L14 34 L24 66 L16 86 L40 82 Z" fill="#DBEAFE"/>
               <path d="M100 68 L134 24 L122 66 L132 94 L98 86 Z" fill="#93C5FD"/>
               <path d="M102 68 L126 34 L116 66 L124 86 L100 82 Z" fill="#DBEAFE"/>
-              <!-- Thân Rồng Sapphire -->
+              <!-- Thân Rồng Sapphire & Giáp Ngực Hoàng Kim -->
               <ellipse cx="70" cy="84" rx="32" ry="35" fill="#60A5FA"/>
-              <polygon points="70,60 88,84 70,114 52,84" fill="#E0F2FE"/>
-              <polygon points="70,66 82,84 70,106 58,84" fill="#FEF9C3"/>
+              <polygon points="70,58 90,84 70,116 50,84" fill="#FDE047"/>
+              <polygon points="70,63 84,84 70,108 56,84" fill="#ECFEFF"/>
               <!-- Đầu & Vương miện Sừng Pha Lê -->
               <circle cx="70" cy="46" r="22" fill="#3B82F6"/>
               <polygon points="54,28 38,6 63,23" fill="#A5F3FC"/>
               <polygon points="86,28 102,6 77,23" fill="#A5F3FC"/>
-              <polygon points="63,26 70,6 77,26" fill="#FDE047"/>
-              <circle cx="61" cy="45" r="4.5" fill="#FFFFFF"/>
-              <circle cx="79" cy="45" r="4.5" fill="#FFFFFF"/>
-              <circle cx="61" cy="45" r="2.2" fill="#1E3A8A"/>
-              <circle cx="79" cy="45" r="2.2" fill="#1E3A8A"/>
+              <polygon points="63,26 70,4 77,26" fill="#FDE047"/>
+              ${isHit
+                ? `<path d="M55 41 L65 45 L55 49" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round"/>
+                   <path d="M85 41 L75 45 L85 49" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linecap="round"/>`
+                : `<circle cx="61" cy="45" r="4.5" fill="#FFFFFF"/>
+                   <circle cx="79" cy="45" r="4.5" fill="#FFFFFF"/>
+                   <circle cx="61" cy="45" r="2.2" fill="#1E3A8A"/>
+                   <circle cx="79" cy="45" r="2.2" fill="#1E3A8A"/>`}
               <ellipse cx="52" cy="51" rx="4" ry="2.5" fill="#FDA4AF"/>
               <ellipse cx="88" cy="51" rx="4" ry="2.5" fill="#FDA4AF"/>
             </g>
+            ${hitBurstOverlay}
           </svg>`;
       }
+    }
+
+    /**
+     * Vẽ Tia Chưởng Chiến Đấu RPG (Kiếm Khí Pha Lê cho Hiệp Sĩ Nam / Cầu Ánh Sao cho Pháp Sư Mai)
+     * Cảm hứng từ bộ Kenney.nl Particle Pack CC0
+     */
+    static renderBattleBeamSVG(avatar = 'knight', isActive = false) {
+      if (!isActive) return '';
+      if (avatar === 'mage') {
+        return `
+        <svg viewBox="0 0 280 90" class="mk-battle-beam-svg" aria-hidden="true">
+          <defs>
+            <linearGradient id="mkMageBeam" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0%" stop-color="#C4B5FD" stop-opacity="0.1"/>
+              <stop offset="55%" stop-color="#38BDF8" stop-opacity="0.9"/>
+              <stop offset="100%" stop-color="#FEF08A" stop-opacity="1"/>
+            </linearGradient>
+          </defs>
+          <path d="M10 45 Q130 18 245 45 Q130 72 10 45 Z" fill="url(#mkMageBeam)"/>
+          <circle cx="242" cy="45" r="20" fill="#FEF08A" opacity="0.9"/>
+          <circle cx="242" cy="45" r="12" fill="#FFFFFF"/>
+          <polygon points="180,22 184,32 194,32 186,38 189,48 180,42 171,48 174,38 166,32 176,32" fill="#FDE047"/>
+          <polygon points="110,54 113,61 120,61 115,65 117,72 110,68 103,72 105,65 100,61 107,61" fill="#A5F3FC"/>
+        </svg>`;
+      }
+      return `
+      <svg viewBox="0 0 280 90" class="mk-battle-beam-svg" aria-hidden="true">
+        <defs>
+          <linearGradient id="mkSwordWave" x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stop-color="#38BDF8" stop-opacity="0"/>
+            <stop offset="60%" stop-color="#7DD3FC" stop-opacity="0.88"/>
+            <stop offset="100%" stop-color="#FEF08A" stop-opacity="1"/>
+          </linearGradient>
+        </defs>
+        <path d="M16 58 Q145 42 225 14 Q268 45 225 76 Q145 48 16 58 Z" fill="url(#mkSwordWave)"/>
+        <path d="M210 18 Q254 45 210 72" fill="none" stroke="#FFFFFF" stroke-width="5" stroke-linecap="round"/>
+        <polygon points="248,45 253,35 264,45 253,55" fill="#FFFFFF"/>
+      </svg>`;
+    }
+
+    /**
+     * Vẽ Rương Kho Báu Chiến Thắng 2.5D Paper-Cut (Cảm hứng từ Kenney RPG Chest CC0)
+     */
+    static renderTreasureChestSVG(stageId = 1, size = 104) {
+      const st = STAGES_CONFIG.find((s) => s.id === Number(stageId)) || STAGES_CONFIG[0];
+      return `
+      <svg viewBox="0 0 120 116" width="${size}" height="${size}" class="mk-treasure-chest-svg" aria-label="Rương Kho Báu Pha Lê">
+        <defs>
+          <radialGradient id="mkChestGlow${stageId}" cx="50%" cy="42%" r="50%">
+            <stop offset="0%" stop-color="#FEF08A" stop-opacity="0.95"/>
+            <stop offset="65%" stop-color="${st.crystalGlow}" stop-opacity="0.55"/>
+            <stop offset="100%" stop-color="#FFFFFF" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <circle cx="60" cy="48" r="52" fill="url(#mkChestGlow${stageId})"/>
+        <!-- Quầng sáng & Đồng xu vàng bay lên từ rương -->
+        <circle cx="32" cy="40" r="7" fill="#FBBF24"/><circle cx="32" cy="40" r="4" fill="#FEF08A"/>
+        <circle cx="88" cy="38" r="7" fill="#FBBF24"/><circle cx="88" cy="38" r="4" fill="#FEF08A"/>
+        <polygon points="22,22 25,29 32,29 26,33 28,40 22,36 16,40 18,33 12,29 19,29" fill="#FDE047"/>
+        <polygon points="98,20 101,27 108,27 102,31 104,38 98,34 92,38 94,31 88,27 95,27" fill="#FDE047"/>
+        <!-- Nắp rương mở hé phía sau -->
+        <path d="M24 58 Q60 36 96 58 L92 68 L28 68 Z" fill="#B45309"/>
+        <path d="M28 58 Q60 42 92 58 L89 65 L31 65 Z" fill="#F59E0B"/>
+        <!-- Viên Đá Pha Lê Tỏa Sáng Nhô Lên Từ Giữa Rương -->
+        <g transform="translate(34, 8)">
+          <polygon points="26,2 46,18 39,48 13,48 6,18" fill="${st.crystalColor}"/>
+          <polygon points="26,5 38,18 26,44 14,18" fill="${st.crystalGlow}" opacity="0.9"/>
+          <polygon points="26,5 26,44 14,18" fill="#FFFFFF" opacity="0.5"/>
+          <circle cx="20" cy="15" r="3" fill="#FFFFFF"/>
+        </g>
+        <!-- Thân rương gỗ viền vàng Hoàng Kim -->
+        <rect x="22" y="64" width="76" height="40" rx="8" fill="#D97706"/>
+        <rect x="26" y="68" width="68" height="32" rx="6" fill="#F59E0B"/>
+        <!-- Đai vàng & Ổ khóa ngọc -->
+        <rect x="20" y="62" width="80" height="8" rx="4" fill="#FDE047"/>
+        <rect x="34" y="62" width="8" height="42" rx="2" fill="#FDE047"/>
+        <rect x="78" y="62" width="8" height="42" rx="2" fill="#FDE047"/>
+        <rect x="52" y="60" width="16" height="18" rx="4" fill="#FEF08A"/>
+        <polygon points="60,64 65,69 60,74 55,69" fill="${st.crystalColor}"/>
+      </svg>`;
+    }
+
+    /**
+     * Vẽ Bộ 8 Huy Hiệu Hiệp Sĩ Vector RPG (Cảm hứng từ Game-icons.net & Kenney Medals CC0)
+     */
+    static renderBadgeIconSVG(badgeId = 'first_blood', earned = false, size = 36) {
+      const paletteMap = {
+        first_blood: { bg1: '#34D399', bg2: '#059669', rim: '#FDE047', symbol: 'sword' },
+        fury_hero: { bg1: '#FB7185', bg2: '#E11D48', rim: '#FEF08A', symbol: 'flame' },
+        speed_demon: { bg1: '#FDE047', bg2: '#D97706', rim: '#FEF9C3', symbol: 'bolt' },
+        geo_master: { bg1: '#38BDF8', bg2: '#0284C7', rim: '#FDE047', symbol: 'compass' },
+        word_wizard: { bg1: '#A78BFA', bg2: '#7C3AED', rim: '#FDE047', symbol: 'book' },
+        stat_sage: { bg1: '#2DD4BF', bg2: '#0D9488', rim: '#FEF08A', symbol: 'bars' },
+        flawless_stage: { bg1: '#60A5FA', bg2: '#2563EB', rim: '#FDE047', symbol: 'shield' },
+        crystal_savior: { bg1: '#FBBF24', bg2: '#B45309', rim: '#FEF08A', symbol: 'crown' }
+      };
+      const p = paletteMap[badgeId] || paletteMap.first_blood;
+      const c1 = earned ? p.bg1 : '#CBD5E1';
+      const c2 = earned ? p.bg2 : '#94A3B8';
+      const rim = earned ? p.rim : '#E2E8F0';
+      let innerSymbol = '';
+
+      switch (p.symbol) {
+        case 'sword':
+          innerSymbol = `<polygon points="24,10 28,16 26,31 22,31 20,16" fill="#FFFFFF"/><rect x="17" y="30" width="14" height="3.5" rx="1.5" fill="${rim}"/><rect x="22.5" y="33.5" width="3" height="6" rx="1" fill="${rim}"/>`;
+          break;
+        case 'flame':
+          innerSymbol = `<path d="M24 10 Q34 20 31 31 Q29 38 24 38 Q19 38 17 31 Q15 23 21 18 Q20 24 24 22 Z" fill="#FFFFFF"/><path d="M24 20 Q29 26 27 33 Q24 36 21 33 Q20 27 24 20 Z" fill="${rim}"/>`;
+          break;
+        case 'bolt':
+          innerSymbol = `<polygon points="26,9 15,25 23,25 20,39 33,22 25,22" fill="#FFFFFF"/>`;
+          break;
+        case 'compass':
+          innerSymbol = `<polygon points="15,34 15,14 35,34" fill="none" stroke="#FFFFFF" stroke-width="3.2" stroke-linejoin="round"/><rect x="15" y="28" width="6" height="6" fill="${rim}"/>`;
+          break;
+        case 'book':
+          innerSymbol = `<path d="M14 15 Q19 13 24 16 Q29 13 34 15 L34 34 Q29 32 24 35 Q19 32 14 34 Z" fill="#FFFFFF"/><line x1="24" y1="16" x2="24" y2="35" stroke="${c2}" stroke-width="2.2"/>`;
+          break;
+        case 'bars':
+          innerSymbol = `<rect x="14" y="26" width="5" height="10" rx="1.5" fill="#FFFFFF"/><rect x="21.5" y="19" width="5" height="17" rx="1.5" fill="${rim}"/><rect x="29" y="13" width="5" height="23" rx="1.5" fill="#FFFFFF"/>`;
+          break;
+        case 'shield':
+          innerSymbol = `<path d="M15 14 L33 14 L33 25 Q24 37 15 25 Z" fill="#FFFFFF"/><polygon points="24,17 26,21 30,21 27,24 28,28 24,25 20,28 21,24 18,21 22,21" fill="${c2}"/>`;
+          break;
+        default: // crown
+          innerSymbol = `<polygon points="13,32 15,17 20,23 24,13 28,23 33,17 35,32" fill="#FFFFFF"/><rect x="14" y="32" width="20" height="4" rx="2" fill="${rim}"/>`;
+          break;
+      }
+
+      return `
+      <svg viewBox="0 0 48 48" width="${size}" height="${size}" class="mk-badge-svg" aria-hidden="true">
+        <!-- Dải ruy-băng dưới huy chương -->
+        <polygon points="16,34 12,46 19,43 22,46 22,34" fill="${earned ? '#EF4444' : '#94A3B8'}"/>
+        <polygon points="32,34 36,46 29,43 26,46 26,34" fill="${earned ? '#DC2626' : '#64748B'}"/>
+        <!-- Khung khiên bát giác mạ vàng -->
+        <polygon points="24,3 39,9 44,24 39,37 24,42 9,37 4,24 9,9" fill="${rim}"/>
+        <polygon points="24,6 36,11 40,24 36,34 24,39 12,34 8,24 12,11" fill="${c2}"/>
+        <polygon points="24,8 34,12 37,23 24,36 11,23 14,12" fill="${c1}"/>
+        ${innerSymbol}
+      </svg>`;
     }
 
     /**
@@ -1128,18 +1335,28 @@
     }
 
     /**
-     * Vẽ SVG Viên Đá Pha Lê 2.5D Paper-Cut Lineless (sáng rực khi đã khôi phục hoặc pastel mờ khi bị phong ấn)
+     * Vẽ SVG Viên Đá Pha Lê 2.5D Paper-Cut Đa Diện Lấp Lánh (Cảm hứng từ Kenney Puzzle Gem Pack CC0)
      */
     static renderCrystalSVG(stageId = 1, unlocked = false, size = 44) {
       const st = STAGES_CONFIG.find((s) => s.id === Number(stageId)) || STAGES_CONFIG[0];
-      const fill = unlocked ? st.crystalColor : '#E2E8F0';
+      const fill = unlocked ? st.crystalColor : '#CBD5E1';
       const glow = unlocked ? st.crystalGlow : '#F1F5F9';
+      const rim = unlocked ? '#FDE047' : '#94A3B8';
       return `
       <svg viewBox="0 0 64 64" width="${size}" height="${size}" class="mk-crystal-svg ${unlocked ? 'mk-crystal-active' : ''}" aria-label="${st.crystalName}">
-        <polygon points="32,4 55,22 46,58 18,58 9,22" fill="${fill}"/>
-        <polygon points="32,6 45,22 32,53 19,22" fill="${glow}" opacity="0.85"/>
-        <polygon points="32,6 32,53 19,22" fill="#FFFFFF" opacity="${unlocked ? '0.45' : '0.2'}"/>
-        <circle cx="25" cy="18" r="3.2" fill="#FFFFFF" opacity="${unlocked ? '0.95' : '0.4'}"/>
+        ${unlocked ? `<circle cx="32" cy="32" r="28" fill="${glow}" opacity="0.45"/>` : ''}
+        <!-- Viền đế vàng bảo thạch -->
+        <polygon points="32,2 57,21 48,59 16,59 7,21" fill="${rim}" opacity="${unlocked ? '0.85' : '0.35'}"/>
+        <!-- Thân pha lê đa diện -->
+        <polygon points="32,5 54,22 46,56 18,56 10,22" fill="${fill}"/>
+        <polygon points="32,7 45,22 32,52 19,22" fill="${glow}" opacity="0.88"/>
+        <polygon points="32,7 32,52 19,22" fill="#FFFFFF" opacity="${unlocked ? '0.52' : '0.22'}"/>
+        <polygon points="10,22 19,22 18,56" fill="#FFFFFF" opacity="${unlocked ? '0.28' : '0.1'}"/>
+        <!-- Tia lấp lánh 4 cánh -->
+        ${unlocked
+          ? `<polygon points="23,11 25,16 30,18 25,20 23,25 21,20 16,18 21,16" fill="#FFFFFF"/>
+             <circle cx="42" cy="38" r="2.2" fill="#FFFFFF" opacity="0.9"/>`
+          : `<circle cx="25" cy="18" r="3" fill="#FFFFFF" opacity="0.35"/>`}
       </svg>`;
     }
 
@@ -6297,6 +6514,34 @@
     .mk-hero-hit {
       animation: mkHeroFlash 0.5s ease;
     }
+    @keyframes mkBeamShoot {
+      0% { opacity: 0; transform: translate(-60%, -50%) scaleX(0.25); }
+      35% { opacity: 1; transform: translate(-50%, -50%) scaleX(1.06); }
+      80% { opacity: 0.92; transform: translate(-44%, -50%) scaleX(1); }
+      100% { opacity: 0; transform: translate(-38%, -50%) scaleX(0.9); }
+    }
+    .mk-battle-beam-svg {
+      position: absolute;
+      left: 50%;
+      top: 52%;
+      width: clamp(160px, 28vw, 290px);
+      height: auto;
+      transform: translate(-50%, -50%);
+      pointer-events: none;
+      z-index: 6;
+      filter: drop-shadow(0 0 10px rgba(254, 240, 138, 0.9));
+      animation: mkBeamShoot 0.68s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+    }
+    .mk-treasure-chest-svg {
+      display: inline-block;
+      filter: drop-shadow(0 8px 16px rgba(245, 158, 11, 0.25));
+      animation: mkFloatIdle 2.2s ease-in-out infinite;
+    }
+    .mk-badge-svg {
+      flex-shrink: 0;
+      display: block;
+      filter: drop-shadow(0 2px 4px rgba(15, 61, 94, 0.14));
+    }
 
     /* ========================================================================
      * CONTAINER-FIRST RESPONSIVE (@container mkshell) CHO MỌI KHUNG BÀI VIẾT WP
@@ -7188,7 +7433,7 @@
         const earned = sv.badges.includes(b.id);
         return `
           <div class="mk-badge-card ${earned ? 'earned' : 'locked'}" title="${b.name}: ${b.desc}">
-            <span class="mk-badge-icon">${b.icon}</span>
+            <span class="mk-badge-icon">${VisualBuilder.renderBadgeIconSVG(b.id, earned, 34)}</span>
             <div class="mk-badge-text-wrap">
               <div class="mk-badge-title">${b.name}</div>
               <div class="mk-badge-desc">${b.desc}</div>
@@ -7449,6 +7694,8 @@
               </div>
             </div>
 
+            ${VisualBuilder.renderBattleBeamSVG(this.gm.saveData.avatar, Boolean(this.lastFeedback && this.lastFeedback.isCorrect))}
+
             <!-- Quái vật đứng bên phải + Thanh máu đỏ chia đốt câu hỏi còn lại -->
             <div class="mk-fighter-unit monster">
               ${this.lastFeedback && this.lastFeedback.isCorrect
@@ -7464,7 +7711,7 @@
                 </div>
               </div>
               <div class="mk-sprite-box">
-                ${VisualBuilder.renderBossSVG(st.id, this.bossHitAnim, this.monsterAttackAnim)}
+                ${VisualBuilder.renderBossSVG(st.id, Boolean(this.bossHitAnim || (this.lastFeedback && this.lastFeedback.isCorrect)), this.monsterAttackAnim, isBossQ)}
               </div>
             </div>
           </div>
@@ -7706,7 +7953,10 @@
         this.mainEl,
         `
         <div style="background:#FFFDF9;border:3px solid #FFFFFF;border-radius:28px;box-shadow:0 8px 0 #6EE7B7, 0 22px 44px -10px rgba(16,185,129,0.18);padding:26px;text-align:center;max-width:640px;margin:0 auto;">
-          <div style="margin-bottom:8px;">${VisualBuilder.renderCrystalSVG(st.id, true, 76)}</div>
+          <div style="margin-bottom:6px;display:flex;justify-content:center;align-items:center;gap:14px;">
+            ${VisualBuilder.renderTreasureChestSVG(st.id, 98)}
+            ${VisualBuilder.renderCrystalSVG(st.id, true, 72)}
+          </div>
           <div style="font-size:1.85rem;letter-spacing:4px;margin-bottom:6px;color:#F59E0B;">${starsVisual}</div>
           <h2 style="font-size:1.65rem;font-weight:900;color:#047857;margin:0 0 8px 0;">
             🎉 Khôi Phục Thành Công ${st.crystalName}!
