@@ -2,7 +2,7 @@
 
 **Giải pháp Web & Plugin WordPress Giáo dục Tương tác môn Toán Lớp 3 — Bộ sách Kết nối tri thức với cuộc sống (GDPT 2018)**
 
-[![Phiên bản](https://img.shields.io/badge/Version-1.3-007a33?style=flat-square)](https://github.com/vitinhthanhphat-png/hiep-si-toan-hoc/releases)
+[![Phiên bản](https://img.shields.io/badge/Version-1.4-007a33?style=flat-square)](https://github.com/vitinhthanhphat-png/hiep-si-toan-hoc/releases)
 [![WordPress](https://img.shields.io/badge/WordPress-5.8%2B-21759b?style=flat-square)](https://wordpress.org)
 [![PHP](https://img.shields.io/badge/PHP-7.4%2B-777bb4?style=flat-square)](https://php.net)
 [![Tác giả](https://img.shields.io/badge/Author-Techshare%20VN-007a33?style=flat-square)](https://techsharevn.com)
