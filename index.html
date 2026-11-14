@@ -1843,12 +1843,33 @@ window.MK_SGK_ASSETS = {
     static normalizeQuestion(q, isBossQuestion = false) {
       if (!q) return null;
       const rawCat = q.category === 'arith' ? 'num' : (q.category || 'num');
-      const choices = Array.isArray(q.choices) && q.choices.length === 4
+      const rawChoices = Array.isArray(q.choices) && q.choices.length === 4
         ? q.choices
         : (Array.isArray(q.options) && q.options.length === 4 ? q.options : []);
-      let correctIdx = choices.indexOf(q.correctAnswer);
+      let choices = rawChoices.map((c) => String(c));
+      if (choices.length !== 4 || new Set(choices).size !== 4 || !choices.includes(String(q.correctAnswer))) {
+        const uniqueSet = new Set([String(q.correctAnswer)]);
+        choices.forEach((c) => {
+          if (uniqueSet.size < 4 && c) uniqueSet.add(c);
+        });
+        if (uniqueSet.size < 4 && typeof q.numericAnswer === 'number') {
+          const unitMatch = String(q.correctAnswer).match(/^[\d\s]+(.*)$/);
+          const unitSuffix = unitMatch && unitMatch[1] ? unitMatch[1].trim() : '';
+          const extras = this.makeNumericOptions(q.numericAnswer, unitSuffix, [-100, -10, -3, -2, -1, 1, 2, 3, 10, 100]);
+          extras.forEach((ex) => {
+            if (uniqueSet.size < 4) uniqueSet.add(ex);
+          });
+        }
+        let step = 1;
+        while (uniqueSet.size < 4) {
+          uniqueSet.add(typeof q.numericAnswer === 'number' ? this.formatNum(q.numericAnswer + step * 7) : `${q.correctAnswer} #${step}`);
+          step++;
+        }
+        choices = this.shuffle(Array.from(uniqueSet));
+      }
+      let correctIdx = choices.indexOf(String(q.correctAnswer));
       if (correctIdx < 0 && choices.length === 4) {
-        choices[0] = q.correctAnswer;
+        choices[0] = String(q.correctAnswer);
         correctIdx = 0;
       }
       const svgVisual = q.svgVisual !== undefined
@@ -1869,30 +1890,86 @@ window.MK_SGK_ASSETS = {
     }
 
     /**
-     * Sinh danh sách 9 câu hỏi cho 1 ải (8 câu thường + 1 câu Boss cuối ải = 9 câu, không trùng lặp)
-     * Hỗ trợ 3 chế độ sách: 'tap1' (SGK Tập 1), 'tap2' (SGK Tập 2), 'all' (Tổng hợp Tập 1 & Tập 2)
+     * Trích xuất chữ ký mẫu câu (Template Fingerprint) bằng cách chuẩn hóa các con số thành "#"
+     * giúp ngăn chặn tuyệt đối việc xuất hiện 2 câu hỏi cùng mẫu lời văn trong 1 trận đấu!
+     */
+    static getQuestionFingerprint(q) {
+      if (!q) return '';
+      if (q.templateKey) return String(q.templateKey);
+      const raw = String(q.questionText || q.question || '');
+      return `${q.topicName || ''}::${raw.replace(/\d+/g, '#').slice(0, 64)}`;
+    }
+
+    /**
+     * Sinh danh sách 9 câu hỏi cho 1 ải (8 câu thường + 1 câu Boss cuối ải = 9 câu)
+     * Sử dụng thuật toán Shuffled Stratified Deck + Cross-Match Memory:
+     * - Xáo trộn ngẫu nhiên bộ khay chủ đề con (Deck) trước mỗi trận đấu (không lặp thứ tự cố định 0..8)
+     * - Không lặp lại cùng một mẫu lời văn (templateKey / fingerprint) trong cùng 1 ải
+     * - Ưu tiên các câu hỏi chưa từng xuất hiện trong 60 câu gần nhất giữa các trận đấu
      */
     static generateStageQuestions(stageId = 1, count = 9, enabledTopics = ['num', 'geo', 'word', 'stat'], bookMode = 'all') {
+      if (!this._recentQuestions) this._recentQuestions = [];
+      if (!this._recentFingerprints) this._recentFingerprints = [];
+
       const questions = [];
       const seenTexts = new Set();
-      let attempts = 0;
+      const seenFingerprints = new Set();
 
-      while (questions.length < count && attempts < count * 12) {
+      // Tạo bộ chỉ số ngẫu nhiên lớn (0..35) và xáo trộn Fisher-Yates để mỗi trận đấu có thứ tự hoàn toàn mới
+      const candidateIndices = this.shuffle(Array.from({ length: 36 }, (_, i) => i + this.randInt(0, 11)));
+
+      // Vòng 1: Khắt khe nhất - Khác hoàn toàn mẫu câu (fingerprint) trong trận VÀ chưa xuất hiện ở các trận gần đây
+      for (let i = 0; i < candidateIndices.length && questions.length < count; i++) {
+        const isBossQ = questions.length === count - 1;
+        const q = this.generateSingleQuestion(stageId, candidateIndices[i], enabledTopics, isBossQ, bookMode);
+        if (!q || seenTexts.has(q.questionText)) continue;
+        const fp = this.getQuestionFingerprint(q);
+        if (seenFingerprints.has(fp)) continue;
+        if (this._recentQuestions.includes(q.questionText)) continue;
+
+        seenTexts.add(q.questionText);
+        seenFingerprints.add(fp);
+        q.isBossQuestion = isBossQ;
+        questions.push(q);
+      }
+
+      // Vòng 2: Nới lỏng lịch sử trận trước nhưng vẫn giữ khác biệt mẫu câu & nội dung 100% trong trận hiện tại
+      let attempts = 0;
+      while (questions.length < count && attempts < count * 16) {
         attempts++;
         const isBossQ = questions.length === count - 1;
-        const q = this.generateSingleQuestion(stageId, questions.length + attempts - 1, enabledTopics, isBossQ, bookMode);
-        if (q && !seenTexts.has(q.questionText)) {
-          seenTexts.add(q.questionText);
-          q.isBossQuestion = isBossQ;
-          questions.push(q);
-        }
+        const randIdx = this.randInt(0, 120) + attempts;
+        const q = this.generateSingleQuestion(stageId, randIdx, enabledTopics, isBossQ, bookMode);
+        if (!q || seenTexts.has(q.questionText)) continue;
+        const fp = this.getQuestionFingerprint(q);
+        if (attempts < count * 8 && seenFingerprints.has(fp)) continue;
+
+        seenTexts.add(q.questionText);
+        seenFingerprints.add(fp);
+        q.isBossQuestion = isBossQ;
+        questions.push(q);
       }
+
+      // Vòng 3: Dự phòng an toàn
       while (questions.length < count) {
         const isBossQ = questions.length === count - 1;
-        const fallbackQ = this.generateSingleQuestion(stageId, questions.length, enabledTopics, isBossQ, bookMode);
+        const fallbackQ = this.generateSingleQuestion(stageId, this.randInt(0, 999), enabledTopics, isBossQ, bookMode);
         fallbackQ.isBossQuestion = isBossQ;
         questions.push(fallbackQ);
       }
+
+      // Lưu vào bộ nhớ chống trùng lặp giữa các trận đấu (giữ 60 câu gần nhất)
+      questions.forEach((q) => {
+        this._recentQuestions.push(q.questionText);
+        this._recentFingerprints.push(this.getQuestionFingerprint(q));
+      });
+      if (this._recentQuestions.length > 60) {
+        this._recentQuestions = this._recentQuestions.slice(-60);
+      }
+      if (this._recentFingerprints.length > 30) {
+        this._recentFingerprints = this._recentFingerprints.slice(-30);
+      }
+
       return questions;
     }
 
@@ -1908,6 +1985,7 @@ window.MK_SGK_ASSETS = {
       }
 
       const st = Math.max(1, Math.min(5, Number(stageId) || 1));
+      const variantSeed = Math.floor(index / 3) + this.randInt(0, 99);
       let q;
 
       if (bookMode === 'tap1') {
@@ -1916,41 +1994,58 @@ window.MK_SGK_ASSETS = {
         q = this.genTap2QuestionByStage(st, index, enabledTopics);
       } else {
         if (st === 1) {
-          // Ải 1: Khu Rừng Khởi Đầu - Bảng nhân/chia 2-9 (có dư), tìm thành phần chưa biết, cộng trừ phạm vi 10 000
-          const pool1 = [0, 1, 2, 5]; // mult_div_table, unknown_comp, div_remainder_or_frac, large_add_sub_round
-          q = this.genArithQuestion(pool1[index % pool1.length]);
-        } else if (st === 2) {
-          // Ải 2: Thung Lũng Cầu Vồng - Nhân/chia số có 3-4 chữ số với số có 1 chữ số, chữ số La Mã I-XX, xem đồng hồ kim SVG
-          const mode2 = index % 3;
-          if (mode2 === 0) {
-            q = this.genArithQuestion(6); // multi_digit_mult_div
-          } else if (mode2 === 1) {
-            q = this.genArithQuestion(4); // roman_numerals
+          // Ải 1: Khu Rừng Khởi Đầu - Đa dạng 6 dạng Toán Số học & Lời văn cơ bản
+          const pool1 = [0, 1, 2, 5, 7, 8];
+          const chosen = pool1[index % pool1.length];
+          if (chosen === 7) {
+            q = this.genTap1AddSub1000(variantSeed);
+          } else if (chosen === 8) {
+            q = this.genWordQuestion(variantSeed % 3);
           } else {
-            q = this.genGeoQuestion(5);   // clock_time
+            q = this.genArithQuestion(chosen, variantSeed);
+          }
+        } else if (st === 2) {
+          // Ải 2: Thung Lũng Cầu Vồng - Đa dạng Nhân/chia 3-4 chữ số, La Mã (4 kiểu hỏi), Đồng hồ & Tháng-năm, Chu vi
+          const mode2 = index % 5;
+          if (mode2 === 0) {
+            q = this.genArithQuestion(6, variantSeed);
+          } else if (mode2 === 1) {
+            q = this.genArithQuestion(4, variantSeed);
+          } else if (mode2 === 2) {
+            q = this.genGeoQuestion(5, variantSeed);
+          } else if (mode2 === 3) {
+            q = this.genTap2TimeMoneyQuestion(variantSeed);
+          } else {
+            q = this.genTap2Scope10000(variantSeed);
           }
         } else if (st === 3) {
-          // Ải 3: Hang Động Pha Lê - Biểu thức số, quy đổi đơn vị đo (mm, cm, dm, m, km, g, kg, ml, l), cộng trừ phạm vi 100 000
-          const mode3 = index % 3;
+          // Ải 3: Hang Động Pha Lê - Biểu thức số (6 kiểu), Đo lường (mm, cm, dm, m, km, g, kg, ml, l, °C), Số 100 000, Rút về đơn vị
+          const mode3 = index % 5;
           if (mode3 === 0) {
-            q = this.genArithQuestion(3); // expression_val
+            q = this.genArithQuestion(3, variantSeed);
           } else if (mode3 === 1) {
-            q = this.genUnitConversionQuestion(index);
+            q = this.genUnitConversionQuestion(variantSeed);
+          } else if (mode3 === 2) {
+            q = this.genTap1MeasureQuestion(variantSeed);
+          } else if (mode3 === 3) {
+            q = this.genTap2Scope100000(variantSeed);
           } else {
-            q = this.genArithQuestion(5); // large_add_sub_round (100 000)
+            q = this.genTap2UnitReductionWord(variantSeed);
           }
         } else if (st === 4) {
-          // Ải 4: Thác Nước Tri Thức - Chu vi/Diện tích, Góc vuông/Trung điểm/Hình tròn, Giải toán 2 bước tính & Thống kê Xác suất
-          const mode4 = index % 4;
+          // Ải 4: Thác Nước Tri Thức - Chu vi/Diện tích, Góc/Trung điểm/Hình tròn, Giải toán 2 bước & Thống kê Xác suất
+          const mode4 = index % 5;
           if (mode4 === 0) {
-            const geoPool = [3, 4, 0, 1, 2]; // perimeter, area, midpoint, circle, angle
-            q = this.genGeoQuestion(geoPool[index % geoPool.length]);
+            const geoPool = [3, 4, 0, 1, 2];
+            q = this.genGeoQuestion(geoPool[variantSeed % geoPool.length], variantSeed);
           } else if (mode4 === 1) {
-            q = this.genWordQuestion(index);
+            q = this.genWordQuestion(variantSeed);
           } else if (mode4 === 2) {
-            q = this.genStatQuestion(index);
+            q = this.genStatQuestion(variantSeed);
+          } else if (mode4 === 3) {
+            q = this.genTap2TriangleQuadPerimeter(variantSeed);
           } else {
-            q = this.genGeoQuestion((index + 2) % 5);
+            q = this.genGeoQuestion((variantSeed + 2) % 6, variantSeed);
           }
         } else {
           // Ải 5: Đỉnh Núi Pha Lê - Tổng hợp toàn bộ kiến thức nâng cao của cả 4 mạch kiến thức
@@ -1961,19 +2056,19 @@ window.MK_SGK_ASSETS = {
           switch (chosenTopic) {
             case 'num':
             case 'arith':
-              q = this.genArithQuestion(index);
+              q = this.genArithQuestion(variantSeed, variantSeed);
               break;
             case 'geo':
-              q = this.genGeoQuestion(index);
+              q = this.genGeoQuestion(variantSeed, variantSeed);
               break;
             case 'word':
-              q = this.genWordQuestion(index);
+              q = this.genWordQuestion(variantSeed);
               break;
             case 'stat':
-              q = this.genStatQuestion(index);
+              q = this.genStatQuestion(variantSeed);
               break;
             default:
-              q = this.genArithQuestion(index);
+              q = this.genArithQuestion(variantSeed, variantSeed);
               break;
           }
         }
@@ -1987,68 +2082,100 @@ window.MK_SGK_ASSETS = {
      * Toàn bộ số liệu <= 1 000 và trích dẫn 100% SGK Toán 3 Tập 1
      * ------------------------------------------------------------------------ */
     static genTap1QuestionByStage(st = 1, index = 0, enabledTopics = ['num', 'geo', 'word']) {
+      const vSeed = Math.floor(index / 3) + this.randInt(0, 99);
       if (st === 1) {
         // Ải 1 (Tập 1): Khu Rừng Bảng Nhân Chia (Bài 1 -> Bài 15)
         const m1 = index % 4;
-        if (m1 === 0) return this.genArithQuestion(0); // Bảng nhân, bảng chia 2 đến 9
-        if (m1 === 1) return this.genArithQuestion(1); // Tìm thành phần trong phép cộng, trừ, nhân, chia
-        if (m1 === 2) return this.genTap1OneNthQuestion(index); // Một phần mấy (Bài 14)
-        return this.genTap1AddSub1000(index); // Cộng, trừ các số có ba chữ số phạm vi 1 000 (Bài 1, 2)
+        if (m1 === 0) return this.genArithQuestion(0, vSeed); // Bảng nhân, bảng chia 2 đến 9
+        if (m1 === 1) return this.genArithQuestion(1, vSeed); // Tìm thành phần trong phép cộng, trừ, nhân, chia
+        if (m1 === 2) return this.genTap1OneNthQuestion(vSeed); // Một phần mấy (Bài 14)
+        return this.genTap1AddSub1000(vSeed); // Cộng, trừ các số có ba chữ số phạm vi 1 000 (Bài 1, 2)
       }
       if (st === 2) {
         // Ải 2 (Tập 1): Đầm Lầy Hình Phẳng & Khối (Bài 16 -> Bài 22)
         const m2 = index % 3;
-        if (m2 === 0) return this.genGeoQuestion(0); // Điểm ở giữa, trung điểm của đoạn thẳng (Bài 16)
-        if (m2 === 1) return this.genGeoQuestion(1); // Hình tròn: tâm, bán kính, đường kính (Bài 17)
-        return this.genGeoQuestion(2); // Góc vuông, thước Ê-ke, khối lập phương, khối hộp chữ nhật (Bài 18-21)
+        if (m2 === 0) return this.genGeoQuestion(0, vSeed); // Điểm ở giữa, trung điểm của đoạn thẳng (Bài 16)
+        if (m2 === 1) return this.genGeoQuestion(1, vSeed); // Hình tròn: tâm, bán kính, đường kính (Bài 17)
+        return this.genGeoQuestion(2, vSeed); // Góc vuông, thước Ê-ke, tam giác, tứ giác, khối lập phương, khối hộp chữ nhật (Bài 18-21)
       }
       if (st === 3) {
         // Ải 3 (Tập 1): Thung Lũng Chia Có Dư & Lời Văn (Bài 23 -> Bài 29)
         const m3 = index % 5;
-        if (m3 === 0) return this.genTap1DivRemainderQuestion(); // Phép chia hết, phép chia có dư (Bài 25)
-        if (m3 === 1) return this.genWordQuestion(0); // Gấp một số lên một số lần (Bài 24)
-        if (m3 === 2) return this.genWordQuestion(1); // Giảm một số đi một số lần (Bài 27)
-        if (m3 === 3) return this.genWordQuestion(3); // Bài toán giải bằng hai bước tính (Bài 28)
-        return this.genWordQuestion(4); // Bài toán giải bằng hai bước tính (Bài 28)
+        if (m3 === 0) return this.genTap1DivRemainderQuestion(vSeed); // Phép chia hết, phép chia có dư (Bài 25)
+        if (m3 === 1) return this.genWordQuestion(0, vSeed); // Gấp một số lên một số lần (Bài 24)
+        if (m3 === 2) return this.genWordQuestion(1, vSeed); // Giảm một số đi một số lần (Bài 27)
+        if (m3 === 3) return this.genWordQuestion(3, vSeed); // Bài toán giải bằng hai bước tính - Hơn/kém (Bài 28)
+        return this.genWordQuestion(4, vSeed); // Bài toán giải bằng hai bước tính - Gấp lần (Bài 28)
       }
       if (st === 4) {
         // Ải 4 (Tập 1): Hang Động Đo Lường & Biểu Thức (Bài 30 -> Bài 40)
         const m4 = index % 4;
-        if (m4 === 0) return this.genArithQuestion(3); // Tính giá trị của biểu thức số (Bài 38)
-        if (m4 === 1) return this.genTap1MeasureQuestion(index); // Đơn vị đo mm, g, ml, nhiệt độ °C (Bài 30-33)
-        if (m4 === 2) return this.genTap1MultiDigitWithin1000(index); // Nhân/chia số có 2, 3 chữ số trong phạm vi 1 000 (Bài 36, 37)
-        return this.genWordQuestion(2); // So sánh số lớn gấp mấy lần số bé (Bài 39)
+        if (m4 === 0) return this.genArithQuestion(3, vSeed); // Tính giá trị của biểu thức số (Bài 38)
+        if (m4 === 1) return this.genTap1MeasureQuestion(vSeed); // Đơn vị đo mm, g, ml, nhiệt độ °C (Bài 30-33)
+        if (m4 === 2) return this.genTap1MultiDigitWithin1000(vSeed); // Nhân/chia số có 2, 3 chữ số trong phạm vi 1 000 (Bài 36, 37)
+        return this.genWordQuestion(2, vSeed); // So sánh số lớn gấp mấy lần số bé (Bài 39)
       }
       // Ải 5 (Tập 1): Đỉnh Núi Pha Lê Học Kì 1 (Bài 41 -> Bài 44: Tổng hợp Tập 1)
       const stageCycle = (index % 4) + 1;
-      return this.genTap1QuestionByStage(stageCycle, Math.floor(index / 2) + index, enabledTopics);
+      return this.genTap1QuestionByStage(stageCycle, vSeed, enabledTopics);
     }
 
-    static genTap1OneNthQuestion() {
+    static genTap1OneNthQuestion(vSeed = 0) {
       const n = this.randInt(2, 9);
-      const part = this.randInt(4, 9);
+      const part = this.randInt(4, 11);
       const total = n * part;
+      const contexts = [
+        {
+          key: 'one_nth_cam',
+          unit: 'quả',
+          q: `Bà ngoại có ${total} quả cam, bà biếu gia đình Việt 1/${n} số cam đó. Hỏi bà đã biếu bao nhiêu quả cam?`
+        },
+        {
+          key: 'one_nth_nhanvo',
+          unit: 'chiếc',
+          q: `Bạn Mai có ${total} chiếc nhãn vở, Mai tặng em Mi 1/${n} số nhãn vở đó. Hỏi Mai đã tặng Mi bao nhiêu chiếc nhãn vở?`
+        },
+        {
+          key: 'one_nth_sao',
+          unit: 'ngôi sao',
+          q: `Rô-bốt xếp được ${total} ngôi sao giấy và đã tô màu 1/${n} số ngôi sao đó. Hỏi Rô-bốt đã tô màu bao nhiêu ngôi sao?`
+        },
+        {
+          key: 'one_nth_banh',
+          unit: 'chiếc',
+          q: `Mẹ làm ${total} chiếc bánh nướng, cả nhà đã ăn hết 1/${n} số bánh. Hỏi cả nhà đã ăn bao nhiêu chiếc bánh nướng?`
+        },
+        {
+          key: 'one_nth_cay',
+          unit: 'cây',
+          q: `Lớp 3A nhận chăm sóc ${total} cây hoa trong vườn trường, tổ của Nam phụ trách 1/${n} số cây đó. Hỏi tổ của Nam chăm sóc bao nhiêu cây hoa?`
+        }
+      ];
+      const ctx = contexts[(vSeed + this.randInt(0, contexts.length - 1)) % contexts.length];
       return {
+        templateKey: ctx.key,
         category: 'arith',
         topicName: `Một phần mấy (1/${n})`,
         sgkCite: 'SGK Toán 3 Tập 1 - Bài 14, trang 42',
         sgkAssetKey: null,
         inputMode: 'numpad',
-        questionText: `Bà ngoại có ${total} quả cam, bà biếu gia đình Việt 1/${n} số cam đó. Hỏi bà đã biếu bao nhiêu quả cam?`,
-        correctAnswer: `${part} quả`,
+        questionText: ctx.q,
+        correctAnswer: `${part} ${ctx.unit}`,
         numericAnswer: part,
-        options: this.makeNumericOptions(part, 'quả', [-2, -1, 1, 2, 3]),
-        hint: `Muốn tìm 1/${n} của ${total} quả cam, ta lấy ${total} chia cho ${n}.`,
-        explanation: `1/${n} của ${total} quả cam là: ${total} : ${n} = ${part} (quả). [SGK Kết nối tri thức - Bài 14, trang 42 Tập 1]`
+        options: this.makeNumericOptions(part, ctx.unit, [-2, -1, 1, 2, 3]),
+        hint: `Muốn tìm 1/${n} của ${total} (${ctx.unit}), ta lấy ${total} chia cho ${n}.`,
+        explanation: `1/${n} của ${total} là: ${total} : ${n} = ${part} (${ctx.unit}). [SGK Kết nối tri thức - Bài 14, trang 42 Tập 1]`
       };
     }
 
     static genTap1AddSub1000(idx = 0) {
-      if (idx % 2 === 0) {
+      const mode = (idx + this.randInt(0, 3)) % 4;
+      if (mode === 0) {
         const a = this.randInt(145, 580);
         const b = this.randInt(125, 390);
         const sum = a + b;
         return {
+          templateKey: 'tap1_add_3digit_direct',
           category: 'arith',
           topicName: 'Cộng, trừ các số có ba chữ số (phạm vi 1 000)',
           sgkCite: 'SGK Toán 3 Tập 1 - Bài 2, trang 9',
@@ -2062,54 +2189,136 @@ window.MK_SGK_ASSETS = {
           explanation: `Thực hiện phép cộng trong phạm vi 1 000: ${a} + ${b} = ${sum}. [SGK Kết nối tri thức - Bài 2, trang 9 Tập 1]`
         };
       }
-      const b = this.randInt(135, 420);
-      const diff = this.randInt(140, 480);
-      const a = b + diff;
+      if (mode === 1) {
+        const b = this.randInt(135, 420);
+        const diff = this.randInt(140, 480);
+        const a = b + diff;
+        return {
+          templateKey: 'tap1_sub_3digit_direct',
+          category: 'arith',
+          topicName: 'Cộng, trừ các số có ba chữ số (phạm vi 1 000)',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 2, trang 9',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Tính hiệu hai số trong phạm vi 1 000:  ${a} - ${b} = ?`,
+          correctAnswer: String(diff),
+          numericAnswer: diff,
+          options: this.makeNumericOptions(diff, '', [-100, -10, 10, 100, 5]),
+          hint: 'Đặt tính thẳng cột rồi trừ lần lượt từ hàng đơn vị sang hàng chục, hàng trăm.',
+          explanation: `Thực hiện phép trừ trong phạm vi 1 000: ${a} - ${b} = ${diff}. [SGK Kết nối tri thức - Bài 2, trang 9 Tập 1]`
+        };
+      }
+      if (mode === 2) {
+        const h = this.randInt(2, 9);
+        const t = this.randInt(1, 9);
+        const u = this.randInt(1, 9);
+        const num = h * 100 + t * 10 + u;
+        return {
+          templateKey: 'tap1_number_structure_1000',
+          category: 'arith',
+          topicName: 'Ôn tập các số đến 1 000',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 1, trang 6',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Số gồm ${h} trăm, ${t} chục và ${u} đơn vị được viết là số nào?`,
+          correctAnswer: String(num),
+          numericAnswer: num,
+          options: this.shuffle([
+            String(num),
+            String(h * 100 + u * 10 + t),
+            String(t * 100 + h * 10 + u),
+            String(h * 100 + t * 10)
+          ]),
+          hint: `Viết chữ số hàng trăm là ${h}, hàng chục là ${t}, hàng đơn vị là ${u}.`,
+          explanation: `Số gồm ${h} trăm, ${t} chục, ${u} đơn vị là ${h}00 + ${t}0 + ${u} = ${num}. [SGK Kết nối tri thức - Bài 1, trang 6 Tập 1]`
+        };
+      }
+      const k1 = this.randInt(210, 480);
+      const k2 = this.randInt(185, 420);
+      const total = k1 + k2;
       return {
+        templateKey: 'tap1_add_word_1000',
         category: 'arith',
         topicName: 'Cộng, trừ các số có ba chữ số (phạm vi 1 000)',
-        sgkCite: 'SGK Toán 3 Tập 1 - Bài 2, trang 9',
+        sgkCite: 'SGK Toán 3 Tập 1 - Bài 2, trang 10',
         sgkAssetKey: null,
         inputMode: 'mcq',
-        questionText: `Tính hiệu hai số trong phạm vi 1 000:  ${a} - ${b} = ?`,
-        correctAnswer: String(diff),
-        numericAnswer: diff,
-        options: this.makeNumericOptions(diff, '', [-100, -10, 10, 100, 5]),
-        hint: 'Đặt tính thẳng cột rồi trừ lần lượt từ hàng đơn vị sang hàng chục, hàng trăm.',
-        explanation: `Thực hiện phép trừ trong phạm vi 1 000: ${a} - ${b} = ${diff}. [SGK Kết nối tri thức - Bài 2, trang 9 Tập 1]`
+        questionText: `Trường Tiểu học Kim Đồng có ${k1} học sinh nam và ${k2} học sinh nữ. Hỏi trường đó có tất cả bao nhiêu học sinh?`,
+        correctAnswer: `${total} học sinh`,
+        numericAnswer: total,
+        options: this.makeNumericOptions(total, 'học sinh', [-100, -10, 10, 100]),
+        hint: `Cộng số học sinh nam và số học sinh nữ: ${k1} + ${k2}.`,
+        explanation: `Tổng số học sinh của trường là: ${k1} + ${k2} = ${total} (học sinh). [SGK Kết nối tri thức - Bài 2, trang 10 Tập 1]`
       };
     }
 
-    static genTap1DivRemainderQuestion() {
+    static genTap1DivRemainderQuestion(vSeed = 0) {
+      const sub = (vSeed + this.randInt(0, 2)) % 3;
       const divisor = this.randInt(4, 9);
       const quotient = this.randInt(4, 9);
       const rem = this.randInt(1, divisor - 1);
       const dividend = divisor * quotient + rem;
-      const correctStr = `${quotient} (dư ${rem})`;
-      const wrong1 = `${quotient} (dư ${rem === 1 ? 2 : rem - 1})`;
-      const wrong2 = `${quotient + 1} (dư ${rem})`;
-      const wrong3 = `${quotient - 1} (dư ${divisor - 1})`;
+
+      if (sub === 0) {
+        const correctStr = `${quotient} (dư ${rem})`;
+        const wrong1 = `${quotient} (dư ${rem === 1 ? 2 : rem - 1})`;
+        const wrong2 = `${quotient + 1} (dư ${rem})`;
+        const wrong3 = `${quotient - 1} (dư ${divisor - 1})`;
+        return {
+          templateKey: 'div_rem_quotient_and_rem',
+          category: 'arith',
+          topicName: 'Phép chia hết, phép chia có dư',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 25, trang 72',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Thực hiện phép chia có dư:  ${dividend} : ${divisor} được thương và số dư là bao nhiêu?`,
+          correctAnswer: correctStr,
+          numericAnswer: null,
+          options: this.shuffle([correctStr, wrong1, wrong2, wrong3]),
+          hint: `Ta có ${divisor} × ${quotient} = ${divisor * quotient}. Lấy ${dividend} - ${divisor * quotient} để tìm số dư (số dư luôn bé hơn số chia ${divisor}).`,
+          explanation: `Vì ${divisor} × ${quotient} = ${divisor * quotient} và ${dividend} - ${divisor * quotient} = ${rem} (bé hơn ${divisor}), nên ${dividend} : ${divisor} = ${quotient} (dư ${rem}). [SGK Kết nối tri thức - Bài 25, trang 72 Tập 1]`
+        };
+      }
+      if (sub === 1) {
+        return {
+          templateKey: 'div_rem_only_remainder',
+          category: 'arith',
+          topicName: 'Phép chia hết, phép chia có dư',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 25, trang 73',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Trong phép chia ${dividend} : ${divisor}, số dư của phép chia đó là bao nhiêu?`,
+          correctAnswer: `Dư ${rem}`,
+          numericAnswer: rem,
+          options: this.makeNumericOptions(rem, '', [-1, 1, 2, divisor - rem]).map((v) => `Dư ${v}`),
+          hint: `Nhẩm ${divisor} × ${quotient} = ${divisor * quotient}, vậy số dư là ${dividend} - ${divisor * quotient}.`,
+          explanation: `Ta có ${dividend} : ${divisor} = ${quotient} (dư ${rem}), vậy số dư là ${rem} (luôn bé hơn số chia ${divisor}). [SGK Kết nối tri thức - Bài 25, trang 73 Tập 1]`
+        };
+      }
+      const boatsNeeded = quotient + 1;
       return {
+        templateKey: 'div_rem_word_boats',
         category: 'arith',
-        topicName: 'Phép chia hết, phép chia có dư',
-        sgkCite: 'SGK Toán 3 Tập 1 - Bài 25, trang 72',
+        topicName: 'Phép chia có dư trong thực tế',
+        sgkCite: 'SGK Toán 3 Tập 1 - Bài 25, trang 74',
         sgkAssetKey: null,
         inputMode: 'mcq',
-        questionText: `Thực hiện phép chia có dư:  ${dividend} : ${divisor} được thương và số dư là bao nhiêu?`,
-        correctAnswer: correctStr,
-        numericAnswer: null,
-        options: this.shuffle([correctStr, wrong1, wrong2, wrong3]),
-        hint: `Ta có ${divisor} × ${quotient} = ${divisor * quotient}. Lấy ${dividend} - ${divisor * quotient} để tìm số dư (số dư luôn bé hơn số chia ${divisor}).`,
-        explanation: `Vì ${divisor} × ${quotient} = ${divisor * quotient} và ${dividend} - ${divisor * quotient} = ${rem} (bé hơn ${divisor}), nên ${dividend} : ${divisor} = ${quotient} (dư ${rem}). [SGK Kết nối tri thức - Bài 25, trang 72 Tập 1]`
+        questionText: `Một đoàn khách gồm ${dividend} người muốn qua sông, mỗi chiếc thuyền chở được nhiều nhất ${divisor} người khách (không kể người lái thuyền). Hỏi cần ít nhất bao nhiêu chiếc thuyền để chở hết đoàn khách?`,
+        correctAnswer: `${boatsNeeded} thuyền`,
+        numericAnswer: boatsNeeded,
+        options: this.makeNumericOptions(boatsNeeded, 'thuyền', [-2, -1, 1, 2]),
+        hint: `Thực hiện chia ${dividend} : ${divisor} = ${quotient} (dư ${rem} người). Vì còn dư ${rem} người nên cần thêm 1 chiếc thuyền nữa!`,
+        explanation: `Ta có ${dividend} : ${divisor} = ${quotient} (dư ${rem}). Vì còn dư ${rem} người khách nên cần thêm 1 thuyền nữa: ${quotient} + 1 = ${boatsNeeded} (thuyền). [SGK Kết nối tri thức - Bài 25, trang 74 Tập 1]`
       };
     }
 
     static genTap1MeasureQuestion(idx = 0) {
-      const sub = idx % 4;
+      const sub = (idx + this.randInt(0, 5)) % 6;
       if (sub === 0) {
-        const cmVal = this.randInt(2, 8);
+        const cmVal = this.randInt(2, 9);
         const mmVal = cmVal * 10;
         return {
+          templateKey: 'measure_cm_to_mm',
           category: 'geo',
           topicName: 'Đơn vị đo độ dài Mi-li-mét (mm)',
           sgkCite: 'SGK Toán 3 Tập 1 - Bài 30, trang 85',
@@ -2128,6 +2337,7 @@ window.MK_SGK_ASSETS = {
         const g2 = this.randInt(200, 450);
         const sumG = g1 + g2;
         return {
+          templateKey: 'measure_gram_add',
           category: 'geo',
           topicName: 'Đơn vị đo khối lượng Gam (g)',
           sgkCite: 'SGK Toán 3 Tập 1 - Bài 31, trang 87',
@@ -2141,9 +2351,10 @@ window.MK_SGK_ASSETS = {
         };
       }
       if (sub === 2) {
-        const usedMl = this.pick([200, 250, 300, 400, 450]);
+        const usedMl = this.pick([150, 200, 250, 300, 350, 400, 450]);
         const remainMl = 1000 - usedMl;
         return {
+          templateKey: 'measure_ml_sub_from_1l',
           category: 'geo',
           topicName: 'Đơn vị đo dung tích Mi-li-lít (ml)',
           sgkCite: 'SGK Toán 3 Tập 1 - Bài 32, trang 90',
@@ -2156,29 +2367,67 @@ window.MK_SGK_ASSETS = {
           explanation: `Đổi 1 lít = 1 000 ml. Số nước còn lại trong bình là: 1 000 - ${usedMl} = ${remainMl} (ml). [SGK Kết nối tri thức - Bài 32, trang 90 Tập 1]`
         };
       }
-      const morningTemp = this.randInt(18, 25);
-      const increase = this.randInt(4, 8);
-      const noonTemp = morningTemp + increase;
+      if (sub === 3) {
+        const morningTemp = this.randInt(18, 25);
+        const increase = this.randInt(4, 8);
+        const noonTemp = morningTemp + increase;
+        return {
+          templateKey: 'measure_temp_celsius_up',
+          category: 'geo',
+          topicName: 'Nhiệt độ. Đơn vị đo nhiệt độ (°C)',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 33, trang 92',
+          sgkAssetKey: null,
+          questionText: `Buổi sáng nhiệt kế chỉ ${morningTemp} °C. Đến buổi trưa nhiệt độ tăng thêm ${increase} °C. Hỏi nhiệt độ buổi trưa là bao nhiêu độ Xê (°C)?`,
+          correctAnswer: `${noonTemp} °C`,
+          numericAnswer: noonTemp,
+          options: this.makeNumericOptions(noonTemp, '°C', [-increase, -2, 2, 4]),
+          hint: `Lấy nhiệt độ buổi sáng cộng thêm ${increase} °C: ${morningTemp} + ${increase}.`,
+          explanation: `Nhiệt độ buổi trưa là: ${morningTemp} + ${increase} = ${noonTemp} (°C). [SGK Kết nối tri thức - Bài 33, trang 92 Tập 1]`
+        };
+      }
+      if (sub === 4) {
+        const wGram = this.pick([200, 300, 450, 600, 750]);
+        const needGram = 1000 - wGram;
+        return {
+          templateKey: 'measure_gram_to_1kg',
+          category: 'geo',
+          topicName: 'Đơn vị đo khối lượng Gam (g)',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 31, trang 88',
+          sgkAssetKey: null,
+          questionText: `Trên đĩa cân của Rô-bốt có gói đường nặng ${wGram} g. Hỏi cần đặt thêm bao nhiêu gam (g) nữa để được đúng 1 kg (1 000 g)?`,
+          correctAnswer: `${needGram} g`,
+          numericAnswer: needGram,
+          options: this.makeNumericOptions(needGram, 'g', [-100, -50, 50, 100]),
+          hint: `Vì 1 kg = 1 000 g nên ta lấy 1 000 - ${wGram}.`,
+          explanation: `Đổi 1 kg = 1 000 g. Số gam cần đặt thêm là: 1 000 - ${wGram} = ${needGram} (g). [SGK Kết nối tri thức - Bài 31, trang 88 Tập 1]`
+        };
+      }
+      const c1 = this.pick([250, 300, 350, 400]);
+      const c2 = this.pick([150, 200, 250, 300]);
+      const sumMl = c1 + c2;
       return {
+        templateKey: 'measure_ml_add_cups',
         category: 'geo',
-        topicName: 'Nhiệt độ. Đơn vị đo nhiệt độ (°C)',
-        sgkCite: 'SGK Toán 3 Tập 1 - Bài 33, trang 92',
+        topicName: 'Đơn vị đo dung tích Mi-li-lít (ml)',
+        sgkCite: 'SGK Toán 3 Tập 1 - Bài 32, trang 91',
         sgkAssetKey: null,
-        questionText: `Buổi sáng nhiệt kế chỉ ${morningTemp} °C. Đến buổi trưa nhiệt độ tăng thêm ${increase} °C. Hỏi nhiệt độ buổi trưa là bao nhiêu độ Xê (°C)?`,
-        correctAnswer: `${noonTemp} °C`,
-        numericAnswer: noonTemp,
-        options: this.makeNumericOptions(noonTemp, '°C', [-increase, -2, 2, 4]),
-        hint: `Lấy nhiệt độ buổi sáng cộng thêm ${increase} °C: ${morningTemp} + ${increase}.`,
-        explanation: `Nhiệt độ buổi trưa là: ${morningTemp} + ${increase} = ${noonTemp} (°C). [SGK Kết nối tri thức - Bài 33, trang 92 Tập 1]`
+        questionText: `Cốc thứ nhất đựng ${c1} ml nước cam, cốc thứ hai đựng ${c2} ml nước cam. Hỏi cả hai cốc đựng tất cả bao nhiêu mi-li-lít (ml) nước cam?`,
+        correctAnswer: `${sumMl} ml`,
+        numericAnswer: sumMl,
+        options: this.makeNumericOptions(sumMl, 'ml', [-100, -50, 50, 100]),
+        hint: `Cộng dung tích hai cốc nước cam: ${c1} + ${c2}.`,
+        explanation: `Cả hai cốc có số mi-li-lít nước cam là: ${c1} + ${c2} = ${sumMl} (ml). [SGK Kết nối tri thức - Bài 32, trang 91 Tập 1]`
       };
     }
 
     static genTap1MultiDigitWithin1000(idx = 0) {
-      if (idx % 2 === 0) {
+      const mode = (idx + this.randInt(0, 3)) % 4;
+      if (mode === 0) {
         const factor = this.randInt(2, 4);
         const base = this.randInt(104, 240);
         const prod = base * factor;
         return {
+          templateKey: 'tap1_mult_3digit_direct',
           category: 'arith',
           topicName: 'Nhân số có ba chữ số với số có một chữ số',
           sgkCite: 'SGK Toán 3 Tập 1 - Bài 36, trang 98',
@@ -2192,21 +2441,60 @@ window.MK_SGK_ASSETS = {
           explanation: `Đặt tính và nhân từ phải sang trái: ${base} × ${factor} = ${prod}. [SGK Kết nối tri thức - Bài 36, trang 98 Tập 1]`
         };
       }
-      const divisor = this.randInt(2, 6);
-      const quotient = this.randInt(105, Math.floor(960 / divisor));
+      if (mode === 1) {
+        const divisor = this.randInt(2, 6);
+        const quotient = this.randInt(105, Math.floor(960 / divisor));
+        const dividend = quotient * divisor;
+        return {
+          templateKey: 'tap1_div_3digit_direct',
+          category: 'arith',
+          topicName: 'Chia số có ba chữ số cho số có một chữ số',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 37, trang 100',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Tính thương:  ${dividend} : ${divisor} = ?`,
+          correctAnswer: String(quotient),
+          numericAnswer: quotient,
+          options: this.makeNumericOptions(quotient, '', [-10, 10, -2, 2, 12]),
+          hint: `Chia lần lượt từ trái sang phải (từ hàng trăm, hàng chục đến hàng đơn vị) của số ${dividend} cho ${divisor}.`,
+          explanation: `Thực hiện phép chia từ trái sang phải: ${dividend} : ${divisor} = ${quotient}. [SGK Kết nối tri thức - Bài 37, trang 100 Tập 1]`
+        };
+      }
+      if (mode === 2) {
+        const factor = this.randInt(3, 6);
+        const base = this.randInt(22, 85);
+        const prod = base * factor;
+        return {
+          templateKey: 'tap1_mult_2digit_word',
+          category: 'arith',
+          topicName: 'Nhân số có hai chữ số với số có một chữ số',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 23, trang 67',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Mỗi hộp bút màu có ${base} chiếc bút. Hỏi ${factor} hộp như vậy có tất cả bao nhiêu chiếc bút màu?`,
+          correctAnswer: `${prod} chiếc`,
+          numericAnswer: prod,
+          options: this.makeNumericOptions(prod, 'chiếc', [-10, 10, -factor, factor]),
+          hint: `Lấy số chiếc bút trong 1 hộp nhân với ${factor}: ${base} × ${factor}.`,
+          explanation: `${factor} hộp có tất cả số chiếc bút màu là: ${base} × ${factor} = ${prod} (chiếc). [SGK Kết nối tri thức - Bài 23, trang 67 Tập 1]`
+        };
+      }
+      const divisor = this.randInt(3, 7);
+      const quotient = this.randInt(14, 45);
       const dividend = quotient * divisor;
       return {
+        templateKey: 'tap1_div_2digit_word',
         category: 'arith',
-        topicName: 'Chia số có ba chữ số cho số có một chữ số',
-        sgkCite: 'SGK Toán 3 Tập 1 - Bài 37, trang 100',
+        topicName: 'Chia số có hai chữ số cho số có một chữ số',
+        sgkCite: 'SGK Toán 3 Tập 1 - Bài 26, trang 75',
         sgkAssetKey: null,
         inputMode: 'mcq',
-        questionText: `Tính thương:  ${dividend} : ${divisor} = ?`,
-        correctAnswer: String(quotient),
+        questionText: `Xếp đều ${dividend} quả hồng vào ${divisor} đĩa. Hỏi mỗi đĩa có bao nhiêu quả hồng?`,
+        correctAnswer: `${quotient} quả`,
         numericAnswer: quotient,
-        options: this.makeNumericOptions(quotient, '', [-10, 10, -2, 2, 12]),
-        hint: `Chia lần lượt từ trái sang phải (từ hàng trăm, hàng chục đến hàng đơn vị) của số ${dividend} cho ${divisor}.`,
-        explanation: `Thực hiện phép chia từ trái sang phải: ${dividend} : ${divisor} = ${quotient}. [SGK Kết nối tri thức - Bài 37, trang 100 Tập 1]`
+        options: this.makeNumericOptions(quotient, 'quả', [-3, -1, 1, 3, 5]),
+        hint: `Lấy tổng số quả hồng chia cho ${divisor}: ${dividend} : ${divisor}.`,
+        explanation: `Mỗi đĩa có số quả hồng là: ${dividend} : ${divisor} = ${quotient} (quả). [SGK Kết nối tri thức - Bài 26, trang 75 Tập 1]`
       };
     }
 
@@ -2215,46 +2503,49 @@ window.MK_SGK_ASSETS = {
      * Toàn bộ trích dẫn 100% SGK Toán 3 Tập 2
      * ------------------------------------------------------------------------ */
     static genTap2QuestionByStage(st = 1, index = 0, enabledTopics = ['num', 'geo', 'word', 'stat']) {
+      const vSeed = Math.floor(index / 3) + this.randInt(0, 99);
       if (st === 1) {
         // Ải 1 (Tập 2): Thảo Nguyên Số 10 000 & La Mã (Bài 45 -> 49, Bài 54 -> 58)
         const m1 = index % 4;
-        if (m1 === 0) return this.genArithQuestion(4); // Làm quen với chữ số La Mã (Bài 47 Tập 2)
-        if (m1 === 1) return this.genTap2Scope10000(index); // Cộng, trừ, làm tròn trong phạm vi 10 000 (Bài 48, 54, 55)
-        if (m1 === 2) return this.genArithQuestion(6); // Nhân, chia số có 4 chữ số với số có 1 chữ số (Bài 56, 57 Tập 2)
-        return this.genTap2UnitReductionWord(index); // Bài toán liên quan đến rút về đơn vị (Bài 58 Tập 2)
+        if (m1 === 0) return this.genArithQuestion(4, vSeed); // Làm quen với chữ số La Mã (Bài 47 Tập 2)
+        if (m1 === 1) return this.genTap2Scope10000(vSeed); // Cộng, trừ, làm tròn, cấu tạo số trong phạm vi 10 000 (Bài 45-49, 54, 55)
+        if (m1 === 2) return this.genArithQuestion(6, vSeed); // Nhân, chia số có 4 chữ số với số có 1 chữ số (Bài 56, 57 Tập 2)
+        return this.genTap2UnitReductionWord(vSeed); // Bài toán liên quan đến rút về đơn vị (Bài 58 Tập 2)
       }
       if (st === 2) {
         // Ải 2 (Tập 2): Vương Quốc Chu Vi & Diện Tích (Bài 50 -> Bài 53)
         const m2 = index % 3;
-        if (m2 === 0) return this.genGeoQuestion(3); // Chu vi hình chữ nhật, hình vuông (Bài 50 Tập 2)
-        if (m2 === 1) return this.genGeoQuestion(4); // Diện tích hình chữ nhật, hình vuông cm² (Bài 52 Tập 2)
-        return this.genTap2TriangleQuadPerimeter(index); // Chu vi hình tam giác, hình tứ giác (Bài 50 Tập 2)
+        if (m2 === 0) return this.genGeoQuestion(3, vSeed); // Chu vi hình chữ nhật, hình vuông (Bài 50 Tập 2)
+        if (m2 === 1) return this.genGeoQuestion(4, vSeed); // Diện tích hình chữ nhật, hình vuông cm² (Bài 52 Tập 2)
+        return this.genTap2TriangleQuadPerimeter(vSeed); // Chu vi hình tam giác, hình tứ giác & tìm cạnh (Bài 50 Tập 2)
       }
       if (st === 3) {
         // Ải 3 (Tập 2): Thành Phố Số 100 000 (Bài 59 -> 65, Bài 70 -> 72)
-        return this.genTap2Scope100000(index);
+        return this.genTap2Scope100000(vSeed);
       }
       if (st === 4) {
         // Ải 4 (Tập 2): Thác Nước Thời Gian & Thống Kê (Bài 66 -> 69, Bài 73 -> 75)
         const m4 = index % 4;
-        if (m4 === 0) return this.genGeoQuestion(5); // Xem đồng hồ chính xác đến từng phút (Bài 66 Tập 2)
-        if (m4 === 1) return this.genTap2TimeMoneyQuestion(index); // Tháng - năm & Tiền Việt Nam (Bài 67, 68 Tập 2)
-        if (m4 === 2) return this.genStatQuestion(0); // Bảng số liệu thống kê (Bài 73 Tập 2)
-        return this.genStatQuestion(1); // Khả năng xảy ra của một sự kiện (Bài 74 Tập 2)
+        if (m4 === 0) return this.genGeoQuestion(5, vSeed); // Xem đồng hồ chính xác đến từng phút (Bài 66 Tập 2)
+        if (m4 === 1) return this.genTap2TimeMoneyQuestion(vSeed); // Tháng - năm & Tiền Việt Nam (Bài 67, 68 Tập 2)
+        if (m4 === 2) return this.genStatQuestion(0, vSeed); // Bảng số liệu thống kê (Bài 73 Tập 2)
+        return this.genStatQuestion(1, vSeed); // Khả năng xảy ra của một sự kiện (Bài 74 Tập 2)
       }
       // Ải 5 (Tập 2): Đỉnh Núi Pha Lê Học Kì 2 (Bài 76 -> Bài 81: Tổng hợp Tập 2)
       const stageCycle = (index % 4) + 1;
-      return this.genTap2QuestionByStage(stageCycle, Math.floor(index / 2) + index, enabledTopics);
+      return this.genTap2QuestionByStage(stageCycle, vSeed, enabledTopics);
     }
 
     static genTap2Scope10000(idx = 0) {
-      if (idx % 2 === 0) {
+      const m = (idx + this.randInt(0, 4)) % 5;
+      if (m === 0) {
         const thousands = this.randInt(2, 8);
         const hundreds = this.pick([1, 2, 3, 4, 6, 7, 8, 9]);
         const tens = this.randInt(1, 9) * 10;
         const num = thousands * 1000 + hundreds * 100 + tens;
         const rounded = hundreds >= 5 ? (thousands + 1) * 1000 : thousands * 1000;
         return {
+          templateKey: 'tap2_round_10000_thousand',
           category: 'arith',
           topicName: 'Làm tròn số trong phạm vi 10 000',
           sgkCite: 'SGK Toán 3 Tập 2 - Bài 48, trang 15',
@@ -2273,32 +2564,99 @@ window.MK_SGK_ASSETS = {
           explanation: `Khi làm tròn số ${this.formatNum(num)} đến hàng nghìn, chữ số hàng trăm là ${hundreds} (${hundreds >= 5 ? '≥ 5 nên làm tròn lên' : '< 5 nên làm tròn xuống'}), ta được ${this.formatNum(rounded)}. [SGK Kết nối tri thức - Bài 48, trang 15 Tập 2]`
         };
       }
-      const a = this.randInt(2150, 5400);
-      const b = this.randInt(1250, 3800);
-      const sum = a + b;
+      if (m === 1) {
+        const a = this.randInt(2150, 5400);
+        const b = this.randInt(1250, 3800);
+        const sum = a + b;
+        return {
+          templateKey: 'tap2_add_10000',
+          category: 'arith',
+          topicName: 'Phép cộng trong phạm vi 10 000',
+          sgkCite: 'SGK Toán 3 Tập 2 - Bài 54, trang 38',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Tính tổng trong phạm vi 10 000:  ${this.formatNum(a)} + ${this.formatNum(b)} = ?`,
+          correctAnswer: this.formatNum(sum),
+          numericAnswer: sum,
+          options: this.makeNumericOptions(sum, '', [-1000, 1000, -100, 100, 200]),
+          hint: 'Đặt tính thẳng cột từ hàng đơn vị đến hàng nghìn rồi cộng từ phải sang trái.',
+          explanation: `Thực hiện phép cộng trong phạm vi 10 000: ${this.formatNum(a)} + ${this.formatNum(b)} = ${this.formatNum(sum)}. [SGK Kết nối tri thức - Bài 54, trang 38 Tập 2]`
+        };
+      }
+      if (m === 2) {
+        const b = this.randInt(1350, 3800);
+        const diff = this.randInt(1420, 4500);
+        const a = b + diff;
+        return {
+          templateKey: 'tap2_sub_10000',
+          category: 'arith',
+          topicName: 'Phép trừ trong phạm vi 10 000',
+          sgkCite: 'SGK Toán 3 Tập 2 - Bài 55, trang 41',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Tính hiệu trong phạm vi 10 000:  ${this.formatNum(a)} - ${this.formatNum(b)} = ?`,
+          correctAnswer: this.formatNum(diff),
+          numericAnswer: diff,
+          options: this.makeNumericOptions(diff, '', [-1000, 1000, -100, 100, 300]),
+          hint: 'Đặt tính thẳng cột từ hàng đơn vị đến hàng nghìn rồi trừ từ phải sang trái.',
+          explanation: `Thực hiện phép trừ trong phạm vi 10 000: ${this.formatNum(a)} - ${this.formatNum(b)} = ${this.formatNum(diff)}. [SGK Kết nối tri thức - Bài 55, trang 41 Tập 2]`
+        };
+      }
+      if (m === 3) {
+        const th = this.randInt(2, 9);
+        const h = this.randInt(1, 8);
+        const t = this.randInt(1, 8);
+        const u = this.randInt(1, 9);
+        const num = th * 1000 + h * 100 + t * 10 + u;
+        return {
+          templateKey: 'tap2_compose_4digit',
+          category: 'arith',
+          topicName: 'Các số có bốn chữ số',
+          sgkCite: 'SGK Toán 3 Tập 2 - Bài 45, trang 5',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Số gồm ${th} nghìn, ${h} trăm, ${t} chục và ${u} đơn vị được viết là:`,
+          correctAnswer: this.formatNum(num),
+          numericAnswer: num,
+          options: this.shuffle([
+            this.formatNum(num),
+            this.formatNum(th * 1000 + t * 100 + h * 10 + u),
+            this.formatNum(th * 1000 + h * 100 + u * 10 + t),
+            this.formatNum(h * 1000 + th * 100 + t * 10 + u)
+          ]),
+          hint: `Ghép lần lượt chữ số hàng nghìn (${th}), hàng trăm (${h}), hàng chục (${t}), hàng đơn vị (${u}).`,
+          explanation: `Số gồm ${th} nghìn, ${h} trăm, ${t} chục, ${u} đơn vị là ${this.formatNum(num)}. [SGK Kết nối tri thức - Bài 45, trang 5 Tập 2]`
+        };
+      }
+      const base = this.randInt(1998, 8999);
+      const nextNum = base + 1;
       return {
+        templateKey: 'tap2_next_number_10000',
         category: 'arith',
-        topicName: 'Phép cộng, phép trừ trong phạm vi 10 000',
-        sgkCite: 'SGK Toán 3 Tập 2 - Bài 54 & Bài 55, trang 38-42',
+        topicName: 'So sánh các số trong phạm vi 10 000',
+        sgkCite: 'SGK Toán 3 Tập 2 - Bài 46, trang 9',
         sgkAssetKey: null,
         inputMode: 'mcq',
-        questionText: `Tính nhẩm cùng Rô-bốt trong phạm vi 10 000:  ${this.formatNum(a)} + ${this.formatNum(b)} = ?`,
-        correctAnswer: this.formatNum(sum),
-        numericAnswer: sum,
-        options: this.makeNumericOptions(sum, '', [-1000, 1000, -100, 100, 200]),
-        hint: 'Đặt tính thẳng cột từ hàng đơn vị đến hàng nghìn rồi cộng từ phải sang trái.',
-        explanation: `Thực hiện phép cộng trong phạm vi 10 000: ${this.formatNum(a)} + ${this.formatNum(b)} = ${this.formatNum(sum)}. [SGK Kết nối tri thức - Bài 54, trang 38 Tập 2]`
+        questionText: `Số liền sau của số ${this.formatNum(base)} là số nào?`,
+        correctAnswer: this.formatNum(nextNum),
+        numericAnswer: nextNum,
+        options: this.makeNumericOptions(nextNum, '', [-2, -1, 1, 10]),
+        hint: 'Muốn tìm số liền sau của một số, ta lấy số đó cộng thêm 1.',
+        explanation: `Số liền sau của ${this.formatNum(base)} là: ${this.formatNum(base)} + 1 = ${this.formatNum(nextNum)}. [SGK Kết nối tri thức - Bài 46, trang 9 Tập 2]`
       };
     }
 
     static genTap2UnitReductionWord(idx = 0) {
+      const m = (idx + this.randInt(0, 3)) % 4;
       const boxes = this.randInt(3, 6);
       const perBox = this.randInt(6, 12);
       const total1 = boxes * perBox;
       const askBoxes = boxes + this.randInt(2, 4);
       const total2 = askBoxes * perBox;
-      if (idx % 2 === 0) {
+
+      if (m === 0) {
         return {
+          templateKey: 'unit_red_crystals_boxes',
           category: 'word',
           topicName: 'Bài toán liên quan đến rút về đơn vị',
           sgkCite: 'SGK Toán 3 Tập 2 - Bài 58, trang 52',
@@ -2312,28 +2670,63 @@ window.MK_SGK_ASSETS = {
           explanation: `Giải bằng 2 bước (Rút về đơn vị): Mỗi hộp có ${total1} : ${boxes} = ${perBox} (viên). Vậy ${askBoxes} hộp có: ${perBox} × ${askBoxes} = ${total2} (viên). [SGK Kết nối tri thức - Bài 58, trang 52 Tập 2]`
         };
       }
+      if (m === 1) {
+        return {
+          templateKey: 'unit_red_rice_bags',
+          category: 'word',
+          topicName: 'Bài toán liên quan đến rút về đơn vị',
+          sgkCite: 'SGK Toán 3 Tập 2 - Bài 58, trang 53',
+          sgkAssetKey: 'two_step_b28',
+          inputMode: 'mcq',
+          questionText: `Có ${total1} kg gạo chia đều vào ${boxes} túi như nhau. Hỏi muốn đựng ${total2} kg gạo thì cần bao nhiêu túi như thế?`,
+          correctAnswer: `${askBoxes} túi`,
+          numericAnswer: askBoxes,
+          options: this.makeNumericOptions(askBoxes, 'túi', [-2, -1, 1, 2, 3]),
+          hint: `Bước 1 (Rút về đơn vị): Tìm số kg gạo trong 1 túi (${total1} : ${boxes} = ${perBox} kg). Bước 2: Lấy ${total2} : ${perBox}.`,
+          explanation: `Mỗi túi đựng được: ${total1} : ${boxes} = ${perBox} (kg). Số túi cần để đựng ${total2} kg gạo là: ${total2} : ${perBox} = ${askBoxes} (túi). [SGK Kết nối tri thức - Bài 58, trang 53 Tập 2]`
+        };
+      }
+      if (m === 2) {
+        return {
+          templateKey: 'unit_red_books_shelves',
+          category: 'word',
+          topicName: 'Bài toán liên quan đến rút về đơn vị',
+          sgkCite: 'SGK Toán 3 Tập 2 - Bài 58, trang 52',
+          sgkAssetKey: 'two_step_b28',
+          inputMode: 'mcq',
+          questionText: `Thư viện xếp đều ${total1} quyển sách vào ${boxes} ngăn tủ. Hỏi ${askBoxes} ngăn tủ như thế xếp được bao nhiêu quyển sách?`,
+          correctAnswer: `${total2} quyển`,
+          numericAnswer: total2,
+          options: this.makeNumericOptions(total2, 'quyển', [-perBox, perBox, -4, 4]),
+          hint: `Bước 1: Tìm số sách trong 1 ngăn (${total1} : ${boxes} = ${perBox} quyển). Bước 2: Lấy ${perBox} × ${askBoxes}.`,
+          explanation: `Mỗi ngăn tủ có: ${total1} : ${boxes} = ${perBox} (quyển). Vậy ${askBoxes} ngăn tủ có: ${perBox} × ${askBoxes} = ${total2} (quyển). [SGK Kết nối tri thức - Bài 58, trang 52 Tập 2]`
+        };
+      }
       return {
+        templateKey: 'unit_red_chairs_tables',
         category: 'word',
         topicName: 'Bài toán liên quan đến rút về đơn vị',
         sgkCite: 'SGK Toán 3 Tập 2 - Bài 58, trang 53',
         sgkAssetKey: 'two_step_b28',
         inputMode: 'mcq',
-        questionText: `Có ${total1} kg gạo chia đều vào ${boxes} túi như nhau. Hỏi muốn đựng ${total2} kg gạo thì cần bao nhiêu túi như thế?`,
-        correctAnswer: `${askBoxes} túi`,
+        questionText: `Trong hội trường, ${total1} bạn học sinh ngồi đều vào ${boxes} bàn. Hỏi có ${total2} bạn học sinh thì cần ngồi bao nhiêu bàn như vậy?`,
+        correctAnswer: `${askBoxes} bàn`,
         numericAnswer: askBoxes,
-        options: this.makeNumericOptions(askBoxes, 'túi', [-2, -1, 1, 2, 3]),
-        hint: `Bước 1 (Rút về đơn vị): Tìm số kg gạo trong 1 túi (${total1} : ${boxes} = ${perBox} kg). Bước 2: Lấy ${total2} : ${perBox}.`,
-        explanation: `Mỗi túi đựng được: ${total1} : ${boxes} = ${perBox} (kg). Số túi cần để đựng ${total2} kg gạo là: ${total2} : ${perBox} = ${askBoxes} (túi). [SGK Kết nối tri thức - Bài 58, trang 53 Tập 2]`
+        options: this.makeNumericOptions(askBoxes, 'bàn', [-2, -1, 1, 2, 3]),
+        hint: `Bước 1: Tìm số học sinh ngồi 1 bàn (${total1} : ${boxes} = ${perBox} bạn). Bước 2: Lấy ${total2} : ${perBox}.`,
+        explanation: `Mỗi bàn có: ${total1} : ${boxes} = ${perBox} (bạn). Số bàn cần cho ${total2} bạn là: ${total2} : ${perBox} = ${askBoxes} (bàn). [SGK Kết nối tri thức - Bài 58, trang 53 Tập 2]`
       };
     }
 
     static genTap2TriangleQuadPerimeter(idx = 0) {
-      if (idx % 2 === 0) {
+      const m = (idx + this.randInt(0, 3)) % 4;
+      if (m === 0) {
         const a = this.randInt(5, 12);
         const b = this.randInt(6, 14);
         const c = this.randInt(7, 15);
         const p = a + b + c;
         return {
+          templateKey: 'peri_triangle_abc',
           category: 'geo',
           topicName: 'Chu vi hình tam giác, hình tứ giác',
           sgkCite: 'SGK Toán 3 Tập 2 - Bài 50, trang 21',
@@ -2347,33 +2740,71 @@ window.MK_SGK_ASSETS = {
           explanation: `Chu vi hình tam giác ABC là: ${a} + ${b} + ${c} = ${p} (cm). [SGK Kết nối tri thức - Bài 50, trang 21 Tập 2]`
         };
       }
-      const a = this.randInt(4, 10);
-      const b = this.randInt(5, 11);
-      const c = this.randInt(6, 12);
-      const d = this.randInt(5, 10);
-      const p = a + b + c + d;
+      if (m === 1) {
+        const a = this.randInt(4, 10);
+        const b = this.randInt(5, 11);
+        const c = this.randInt(6, 12);
+        const d = this.randInt(5, 10);
+        const p = a + b + c + d;
+        return {
+          templateKey: 'peri_quad_mnpq',
+          category: 'geo',
+          topicName: 'Chu vi hình tam giác, hình tứ giác',
+          sgkCite: 'SGK Toán 3 Tập 2 - Bài 50, trang 21',
+          sgkAssetKey: 'perimeter_b50',
+          inputMode: 'mcq',
+          questionText: `Một hình tứ giác MNPQ có độ dài bốn cạnh là ${a} cm, ${b} cm, ${c} cm và ${d} cm. Chu vi của hình tứ giác đó là bao nhiêu xăng-ti-mét?`,
+          correctAnswer: `${p} cm`,
+          numericAnswer: p,
+          options: this.makeNumericOptions(p, 'cm', [-5, -2, 2, 5, 8]),
+          hint: 'Tổng độ dài 4 cạnh của hình tứ giác là chu vi của hình đó.',
+          explanation: `Chu vi hình tứ giác MNPQ là: ${a} + ${b} + ${c} + ${d} = ${p} (cm). [SGK Kết nối tri thức - Bài 50, trang 21 Tập 2]`
+        };
+      }
+      if (m === 2) {
+        const side = this.randInt(5, 16);
+        const peri = side * 4;
+        return {
+          templateKey: 'peri_square_find_side',
+          category: 'geo',
+          topicName: 'Chu vi hình vuông',
+          sgkCite: 'SGK Toán 3 Tập 2 - Bài 50, trang 23',
+          sgkAssetKey: 'perimeter_b50',
+          inputMode: 'mcq',
+          questionText: `Một khung tranh hình vuông có chu vi bằng ${peri} cm. Hỏi độ dài một cạnh của khung tranh đó là bao nhiêu xăng-ti-mét?`,
+          correctAnswer: `${side} cm`,
+          numericAnswer: side,
+          options: this.makeNumericOptions(side, 'cm', [-3, -1, 1, 3, side]),
+          hint: `Chu vi hình vuông bằng cạnh nhân 4. Vậy muốn tìm độ dài 1 cạnh, ta lấy chu vi chia cho 4: ${peri} : 4.`,
+          explanation: `Độ dài một cạnh của khung tranh hình vuông là: ${peri} : 4 = ${side} (cm). [SGK Kết nối tri thức - Bài 50, trang 23 Tập 2]`
+        };
+      }
+      const sideTri = this.randInt(6, 15);
+      const periTri = sideTri * 3;
       return {
+        templateKey: 'peri_equilateral_triangle',
         category: 'geo',
-        topicName: 'Chu vi hình tam giác, hình tứ giác',
+        topicName: 'Chu vi hình tam giác',
         sgkCite: 'SGK Toán 3 Tập 2 - Bài 50, trang 21',
         sgkAssetKey: 'perimeter_b50',
         inputMode: 'mcq',
-        questionText: `Một hình tứ giác MNPQ có độ dài bốn cạnh là ${a} cm, ${b} cm, ${c} cm và ${d} cm. Chu vi của hình tứ giác đó là bao nhiêu xăng-ti-mét?`,
-        correctAnswer: `${p} cm`,
-        numericAnswer: p,
-        options: this.makeNumericOptions(p, 'cm', [-5, -2, 2, 5, 8]),
-        hint: 'Tổng độ dài 4 cạnh của hình tứ giác là chu vi của hình đó.',
-        explanation: `Chu vi hình tứ giác MNPQ là: ${a} + ${b} + ${c} + ${d} = ${p} (cm). [SGK Kết nối tri thức - Bài 50, trang 21 Tập 2]`
+        questionText: `Bạn Nam dùng một sợi dây đồng uốn thành một hình tam giác có 3 cạnh bằng nhau, mỗi cạnh dài ${sideTri} cm. Hỏi sợi dây đồng đó dài bao nhiêu xăng-ti-mét?`,
+        correctAnswer: `${periTri} cm`,
+        numericAnswer: periTri,
+        options: this.makeNumericOptions(periTri, 'cm', [-sideTri, -3, 3, 6]),
+        hint: `Vì 3 cạnh đều dài ${sideTri} cm nên chu vi bằng ${sideTri} × 3.`,
+        explanation: `Độ dài sợi dây đồng chính là chu vi hình tam giác: ${sideTri} × 3 = ${periTri} (cm). [SGK Kết nối tri thức - Bài 50, trang 21 Tập 2]`
       };
     }
 
     static genTap2Scope100000(idx = 0) {
-      const m = idx % 3;
+      const m = (idx + this.randInt(0, 5)) % 6;
       if (m === 0) {
         const a = this.randInt(14, 48) * 1000 + this.randInt(120, 480);
         const b = this.randInt(12, 36) * 1000 + this.randInt(110, 390);
         const sum = a + b;
         return {
+          templateKey: 'tap2_add_100000',
           category: 'arith',
           topicName: 'Phép cộng trong phạm vi 100 000',
           sgkCite: 'SGK Toán 3 Tập 2 - Bài 63, trang 70',
@@ -2392,6 +2823,7 @@ window.MK_SGK_ASSETS = {
         const diff = this.randInt(15, 42) * 1000 + this.randInt(120, 420);
         const a = b + diff;
         return {
+          templateKey: 'tap2_sub_100000',
           category: 'arith',
           topicName: 'Phép trừ trong phạm vi 100 000',
           sgkCite: 'SGK Toán 3 Tập 2 - Bài 64, trang 73',
@@ -2405,32 +2837,107 @@ window.MK_SGK_ASSETS = {
           explanation: `Thực hiện phép trừ trong phạm vi 100 000: ${this.formatNum(a)} - ${this.formatNum(b)} = ${this.formatNum(diff)}. [SGK Kết nối tri thức - Bài 64, trang 73 Tập 2]`
         };
       }
-      const factor = this.randInt(2, 4);
-      const base = this.randInt(11020, 21230);
-      const prod = base * factor;
+      if (m === 2) {
+        const factor = this.randInt(2, 4);
+        const base = this.randInt(11020, 21230);
+        const prod = base * factor;
+        return {
+          templateKey: 'tap2_mult_5digit',
+          category: 'arith',
+          topicName: 'Nhân số có năm chữ số với số có một chữ số',
+          sgkCite: 'SGK Toán 3 Tập 2 - Bài 70, trang 93',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Tính tích:  ${this.formatNum(base)} × ${factor} = ?`,
+          correctAnswer: this.formatNum(prod),
+          numericAnswer: prod,
+          options: this.makeNumericOptions(prod, '', [-1000, 1000, -100, 100, factor * 10]),
+          hint: `Nhân lần lượt từ phải sang trái số ${this.formatNum(base)} với ${factor}.`,
+          explanation: `Đặt tính và nhân lần lượt từ phải sang trái: ${this.formatNum(base)} × ${factor} = ${this.formatNum(prod)}. [SGK Kết nối tri thức - Bài 70, trang 93 Tập 2]`
+        };
+      }
+      if (m === 3) {
+        const divisor = this.randInt(2, 5);
+        const quotient = this.randInt(10210, Math.floor(85000 / divisor));
+        const dividend = quotient * divisor;
+        return {
+          templateKey: 'tap2_div_5digit',
+          category: 'arith',
+          topicName: 'Chia số có năm chữ số cho số có một chữ số',
+          sgkCite: 'SGK Toán 3 Tập 2 - Bài 71, trang 96',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Tính thương:  ${this.formatNum(dividend)} : ${divisor} = ?`,
+          correctAnswer: this.formatNum(quotient),
+          numericAnswer: quotient,
+          options: this.makeNumericOptions(quotient, '', [-1000, 1000, -100, 100, 200]),
+          hint: `Chia lần lượt từ trái sang phải số ${this.formatNum(dividend)} cho ${divisor}.`,
+          explanation: `Thực hiện phép chia từ trái sang phải: ${this.formatNum(dividend)} : ${divisor} = ${this.formatNum(quotient)}. [SGK Kết nối tri thức - Bài 71, trang 96 Tập 2]`
+        };
+      }
+      if (m === 4) {
+        const tenTh = this.randInt(2, 8);
+        const th = this.pick([1, 2, 3, 4, 6, 7, 8, 9]);
+        const rest = this.randInt(1, 9) * 100;
+        const num = tenTh * 10000 + th * 1000 + rest;
+        const rounded = th >= 5 ? (tenTh + 1) * 10000 : tenTh * 10000;
+        return {
+          templateKey: 'tap2_round_100000_ten_thousand',
+          category: 'arith',
+          topicName: 'Làm tròn số đến hàng chục nghìn',
+          sgkCite: 'SGK Toán 3 Tập 2 - Bài 61, trang 64',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Làm tròn số ${this.formatNum(num)} đến hàng chục nghìn thì được số nào?`,
+          correctAnswer: this.formatNum(rounded),
+          numericAnswer: rounded,
+          options: this.shuffle([
+            this.formatNum(tenTh * 10000),
+            this.formatNum((tenTh + 1) * 10000),
+            this.formatNum(tenTh * 10000 + th * 1000),
+            this.formatNum((tenTh - 1) * 10000)
+          ]),
+          hint: `Xét chữ số hàng nghìn là ${th}. Nếu từ 5 trở lên thì làm tròn lên, từ 4 trở xuống thì làm tròn xuống!`,
+          explanation: `Khi làm tròn ${this.formatNum(num)} đến hàng chục nghìn, vì chữ số hàng nghìn là ${th} nên làm tròn thành ${this.formatNum(rounded)}. [SGK Kết nối tri thức - Bài 61, trang 64 Tập 2]`
+        };
+      }
+      const tt = this.randInt(1, 9);
+      const th = this.randInt(1, 9);
+      const h = this.randInt(0, 9);
+      const t = this.randInt(1, 9);
+      const u = this.randInt(0, 9);
+      const num = tt * 10000 + th * 1000 + h * 100 + t * 10 + u;
       return {
+        templateKey: 'tap2_place_value_100000',
         category: 'arith',
-        topicName: 'Nhân, chia số có năm chữ số với/cho số có một chữ số',
-        sgkCite: 'SGK Toán 3 Tập 2 - Bài 70 & Bài 71, trang 93-97',
+        topicName: 'Các số có năm chữ số',
+        sgkCite: 'SGK Toán 3 Tập 2 - Bài 59, trang 56',
         sgkAssetKey: null,
         inputMode: 'mcq',
-        questionText: `Tính tích:  ${this.formatNum(base)} × ${factor} = ?`,
-        correctAnswer: this.formatNum(prod),
-        numericAnswer: prod,
-        options: this.makeNumericOptions(prod, '', [-1000, 1000, -100, 100, factor * 10]),
-        hint: `Nhân lần lượt từ phải sang trái số ${this.formatNum(base)} với ${factor}.`,
-        explanation: `Đặt tính và nhân lần lượt từ phải sang trái: ${this.formatNum(base)} × ${factor} = ${this.formatNum(prod)}. [SGK Kết nối tri thức - Bài 70, trang 93 Tập 2]`
+        questionText: `Trong số ${this.formatNum(num)}, chữ số hàng chục nghìn có giá trị là bao nhiêu?`,
+        correctAnswer: this.formatNum(tt * 10000),
+        numericAnswer: tt * 10000,
+        options: this.shuffle([
+          this.formatNum(tt * 10000),
+          this.formatNum(tt * 1000),
+          this.formatNum(th * 1000),
+          String(tt)
+        ]),
+        hint: `Chữ số đứng ở hàng chục nghìn là ${tt}, nên giá trị của nó là ${this.formatNum(tt * 10000)}.`,
+        explanation: `Trong số ${this.formatNum(num)}, chữ số ${tt} đứng ở hàng chục nghìn nên có giá trị là ${this.formatNum(tt * 10000)}. [SGK Kết nối tri thức - Bài 59, trang 56 Tập 2]`
       };
     }
 
     static genTap2TimeMoneyQuestion(idx = 0) {
-      if (idx % 2 === 0) {
-        const penPrice = this.pick([5000, 8000, 10000]);
-        const bookPrice = this.pick([12000, 15000, 20000]);
-        const paid = 50000;
+      const m = (idx + this.randInt(0, 3)) % 4;
+      if (m === 0) {
+        const penPrice = this.pick([5000, 6000, 8000, 10000]);
+        const bookPrice = this.pick([12000, 15000, 18000, 20000]);
+        const paid = this.pick([50000, 100000]);
         const total = penPrice + bookPrice;
         const change = paid - total;
         return {
+          templateKey: 'tap2_money_change',
           category: 'geo',
           topicName: 'Tiền Việt Nam',
           sgkCite: 'SGK Toán 3 Tập 2 - Bài 68, trang 85',
@@ -2444,23 +2951,63 @@ window.MK_SGK_ASSETS = {
           explanation: `Tổng tiền mua bút và vở là: ${this.formatNum(penPrice)} + ${this.formatNum(bookPrice)} = ${this.formatNum(total)} (đồng). Tiền trả lại là: ${this.formatNum(paid)} - ${this.formatNum(total)} = ${this.formatNum(change)} (đồng). [SGK Kết nối tri thức - Bài 68, trang 85 Tập 2]`
         };
       }
-      const mItem = this.pick([
-        { m: 1, d: 31 }, { m: 3, d: 31 }, { m: 4, d: 30 }, { m: 5, d: 31 },
-        { m: 6, d: 30 }, { m: 7, d: 31 }, { m: 8, d: 31 }, { m: 9, d: 30 },
-        { m: 10, d: 31 }, { m: 11, d: 30 }, { m: 12, d: 31 }
-      ]);
+      if (m === 1) {
+        const mItem = this.pick([
+          { m: 1, d: 31 }, { m: 3, d: 31 }, { m: 4, d: 30 }, { m: 5, d: 31 },
+          { m: 6, d: 30 }, { m: 7, d: 31 }, { m: 8, d: 31 }, { m: 9, d: 30 },
+          { m: 10, d: 31 }, { m: 11, d: 30 }, { m: 12, d: 31 }
+        ]);
+        return {
+          templateKey: 'tap2_days_in_month',
+          category: 'geo',
+          topicName: 'Thực hành xem đồng hồ, tháng - năm',
+          sgkCite: 'SGK Toán 3 Tập 2 - Bài 67, trang 81',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Theo lịch năm của Rô-bốt, một năm có 12 tháng. Hỏi Tháng ${mItem.m} có bao nhiêu ngày?`,
+          correctAnswer: `${mItem.d} ngày`,
+          numericAnswer: mItem.d,
+          options: ['31 ngày', '30 ngày', '28 ngày', '29 ngày'],
+          hint: 'Các tháng 1, 3, 5, 7, 8, 10, 12 có 31 ngày; các tháng 4, 6, 9, 11 có 30 ngày.',
+          explanation: `Theo Bài 67 SGK Toán 3 Tập 2: Tháng ${mItem.m} có ${mItem.d} ngày. [SGK Kết nối tri thức - Bài 67, trang 81 Tập 2]`
+        };
+      }
+      if (m === 2) {
+        const startMin = this.pick([5, 10, 15, 20]);
+        const duration = this.pick([15, 20, 25, 30, 35]);
+        const endMin = startMin + duration;
+        const h = this.randInt(7, 10);
+        return {
+          templateKey: 'tap2_elapsed_minutes',
+          category: 'geo',
+          topicName: 'Thực hành xem đồng hồ',
+          sgkCite: 'SGK Toán 3 Tập 2 - Bài 67, trang 79',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Bạn Việt bắt đầu giải toán lúc ${h} giờ ${startMin} phút và hoàn thành lúc ${h} giờ ${endMin} phút. Hỏi Việt đã giải toán trong bao nhiêu phút?`,
+          correctAnswer: `${duration} phút`,
+          numericAnswer: duration,
+          options: this.makeNumericOptions(duration, 'phút', [-10, -5, 5, 10]),
+          hint: `Lấy số phút lúc hoàn thành trừ đi số phút lúc bắt đầu: ${endMin} - ${startMin}.`,
+          explanation: `Thời gian Việt giải toán là: ${endMin} - ${startMin} = ${duration} (phút). [SGK Kết nối tri thức - Bài 67, trang 79 Tập 2]`
+        };
+      }
+      const note20k = this.randInt(1, 3);
+      const note10k = this.randInt(1, 3);
+      const sumMoney = note20k * 20000 + note10k * 10000;
       return {
+        templateKey: 'tap2_money_wallet_sum',
         category: 'geo',
-        topicName: 'Thực hành xem đồng hồ, tháng - năm',
-        sgkCite: 'SGK Toán 3 Tập 2 - Bài 67, trang 81',
-        sgkAssetKey: null,
+        topicName: 'Tiền Việt Nam',
+        sgkCite: 'SGK Toán 3 Tập 2 - Bài 68, trang 84',
+        sgkAssetKey: 'vn_money_b68',
         inputMode: 'mcq',
-        questionText: `Theo lịch năm của Rô-bốt, một năm có 12 tháng. Hỏi Tháng ${mItem.m} có bao nhiêu ngày?`,
-        correctAnswer: `${mItem.d} ngày`,
-        numericAnswer: mItem.d,
-        options: ['31 ngày', '30 ngày', '28 ngày', '29 ngày'],
-        hint: 'Các tháng 1, 3, 5, 7, 8, 10, 12 có 31 ngày; các tháng 4, 6, 9, 11 có 30 ngày.',
-        explanation: `Theo Bài 67 SGK Toán 3 Tập 2: Tháng ${mItem.m} có ${mItem.d} ngày. [SGK Kết nối tri thức - Bài 67, trang 81 Tập 2]`
+        questionText: `Trong heo đất tiết kiệm của Nam có ${note20k} tờ tiền 20 000 đồng và ${note10k} tờ tiền 10 000 đồng. Hỏi Nam có tất cả bao nhiêu tiền?`,
+        correctAnswer: `${this.formatNum(sumMoney)} đồng`,
+        numericAnswer: sumMoney,
+        options: this.makeNumericOptions(sumMoney, 'đồng', [-10000, 10000, -20000, 20000]),
+        hint: `Tính ${note20k} × 20 000 + ${note10k} × 10 000.`,
+        explanation: `Tổng số tiền của Nam là: ${this.formatNum(note20k * 20000)} + ${this.formatNum(note10k * 10000)} = ${this.formatNum(sumMoney)} (đồng). [SGK Kết nối tri thức - Bài 68, trang 84 Tập 2]`
       };
     }
 
@@ -2468,11 +3015,12 @@ window.MK_SGK_ASSETS = {
      * Sinh câu hỏi Quy đổi đơn vị đo lường: độ dài (mm, cm, dm, m, km), khối lượng (g, kg), dung tích (ml, l)
      */
     static genUnitConversionQuestion(idx = 0) {
-      const sub = idx % 3;
+      const sub = (idx + this.randInt(0, 4)) % 5;
       if (sub === 0) {
-        const cmVal = this.randInt(2, 8);
+        const cmVal = this.randInt(2, 9);
         const mmVal = cmVal * 10;
         return {
+          templateKey: 'unit_conv_cm_mm',
           category: 'geo',
           topicName: 'Đổi đơn vị đo độ dài (mm, cm, dm, m, km)',
           sgkCite: 'SGK Toán 3 Tập 1 - Bài 30, trang 85',
@@ -2490,6 +3038,7 @@ window.MK_SGK_ASSETS = {
         const kgVal = this.randInt(2, 9);
         const gVal = kgVal * 1000;
         return {
+          templateKey: 'unit_conv_kg_g',
           category: 'geo',
           topicName: 'Đổi đơn vị đo khối lượng (g, kg)',
           sgkCite: 'SGK Toán 3 Tập 1 - Bài 31, trang 87',
@@ -2502,26 +3051,61 @@ window.MK_SGK_ASSETS = {
           explanation: `Vì 1 kg = 1 000 g nên ${kgVal} kg = ${this.formatNum(gVal)} g. [SGK Kết nối tri thức - Bài 31, trang 87 Tập 1]`
         };
       }
-      const lVal = this.randInt(2, 7);
-      const mlVal = lVal * 1000;
+      if (sub === 2) {
+        const lVal = this.randInt(2, 8);
+        const mlVal = lVal * 1000;
+        return {
+          templateKey: 'unit_conv_l_ml',
+          category: 'geo',
+          topicName: 'Đổi đơn vị đo dung tích (ml, l)',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 32, trang 90',
+          sgkAssetKey: null,
+          questionText: `Một bình nước suối Rừng Pha Lê chứa ${lVal} lít (l) nước. Hỏi bình đó chứa bao nhiêu mi-li-lít (ml) nước?`,
+          correctAnswer: `${this.formatNum(mlVal)} ml`,
+          numericAnswer: mlVal,
+          options: this.makeNumericOptions(mlVal, 'ml', [-1000, 1000, -(lVal * 900), 500]),
+          hint: 'Ta có 1 l = 1 000 ml.',
+          explanation: `Vì 1 l = 1 000 ml nên ${lVal} l = ${this.formatNum(mlVal)} ml. [SGK Kết nối tri thức - Bài 32, trang 90 Tập 1]`
+        };
+      }
+      if (sub === 3) {
+        const mVal = this.randInt(2, 9);
+        const mmVal = mVal * 1000;
+        return {
+          templateKey: 'unit_conv_m_mm',
+          category: 'geo',
+          topicName: 'Đổi đơn vị đo độ dài (m, mm)',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 30, trang 86',
+          sgkAssetKey: null,
+          questionText: `Cây cầu gỗ dẫn vào Thung Lũng Pha Lê có lan can cao ${mVal} m. Đổi sang mi-li-mét thì bằng bao nhiêu mm?`,
+          correctAnswer: `${this.formatNum(mmVal)} mm`,
+          numericAnswer: mmVal,
+          options: this.makeNumericOptions(mmVal, 'mm', [-1000, 1000, -(mVal * 900), 500]),
+          hint: 'Ta có 1 m = 1 000 mm.',
+          explanation: `Vì 1 m = 1 000 mm nên ${mVal} m = ${this.formatNum(mmVal)} mm. [SGK Kết nối tri thức - Bài 30, trang 86 Tập 1]`
+        };
+      }
+      const dmVal = this.randInt(3, 9);
+      const mmVal = dmVal * 100;
       return {
+        templateKey: 'unit_conv_dm_mm',
         category: 'geo',
-        topicName: 'Đổi đơn vị đo dung tích (ml, l)',
-        sgkCite: 'SGK Toán 3 Tập 1 - Bài 32, trang 90',
+        topicName: 'Đổi đơn vị đo độ dài (dm, mm)',
+        sgkCite: 'SGK Toán 3 Tập 1 - Bài 30, trang 85',
         sgkAssetKey: null,
-        questionText: `Một bình nước suối Rừng Pha Lê chứa ${lVal} lít (l) nước. Hỏi bình đó chứa bao nhiêu mi-li-lít (ml) nước?`,
-        correctAnswer: `${this.formatNum(mlVal)} ml`,
-        numericAnswer: mlVal,
-        options: this.makeNumericOptions(mlVal, 'ml', [-1000, 1000, -(lVal * 900), 500]),
-        hint: 'Ta có 1 l = 1 000 ml.',
-        explanation: `Vì 1 l = 1 000 ml nên ${lVal} l = ${this.formatNum(mlVal)} ml. [SGK Kết nối tri thức - Bài 32, trang 90 Tập 1]`
+        questionText: `Thanh kiếm gỗ của Hiệp sĩ Nam dài ${dmVal} dm. Hỏi thanh kiếm đó dài bao nhiêu mi-li-mét (mm)?`,
+        correctAnswer: `${mmVal} mm`,
+        numericAnswer: mmVal,
+        options: this.makeNumericOptions(mmVal, 'mm', [-100, 100, -(dmVal * 90), 50]),
+        hint: 'Ta có 1 dm = 10 cm = 100 mm.',
+        explanation: `Vì 1 dm = 100 mm nên ${dmVal} dm = ${mmVal} mm. [SGK Kết nối tri thức - Bài 30, trang 85 Tập 1]`
       };
     }
 
     /* ------------------------------------------------------------------------
      * ẢI 1: THUNG LŨNG SỐ HỌC (SỐ & PHÉP TÍNH - SGK TẬP 1 & TẬP 2)
      * ------------------------------------------------------------------------ */
-    static genArithQuestion(idx = 0) {
+    static genArithQuestion(idx = 0, vSeed = 0) {
       const subTypes = [
         'mult_div_table',
         'unknown_comp',
@@ -2532,55 +3116,87 @@ window.MK_SGK_ASSETS = {
         'multi_digit_mult_div'
       ];
       const type = subTypes[idx % subTypes.length];
+      const v = vSeed + this.randInt(0, 99);
 
-      // 1. Bảng nhân, bảng chia 2..9
+      // 1. Bảng nhân, bảng chia 2..9 (Đa dạng 4 ngữ cảnh)
       if (type === 'mult_div_table') {
         const a = this.randInt(3, 9);
         const b = this.randInt(4, 9);
         const prod = a * b;
-        const isMult = Math.random() < 0.5;
-        if (isMult) {
-          const ansStr = String(prod);
+        const m = v % 4;
+        if (m === 0) {
           return {
+            templateKey: 'arith_mult_direct',
             category: 'arith',
             topicName: 'Bảng nhân 2 đến 9',
             sgkCite: 'SGK Toán 3 Tập 1 - Chủ đề 2 (Bài 4, 6, 9, 10, 11, 12)',
             sgkAssetKey: null,
             inputMode: 'numpad',
             questionText: `Rô-bốt đố bạn: Kết quả của phép nhân ${a} × ${b} bằng bao nhiêu?`,
-            correctAnswer: ansStr,
+            correctAnswer: String(prod),
             numericAnswer: prod,
             options: this.makeNumericOptions(prod, '', [-a, a, -b, b, -2, 2]),
             hint: `Em nhẩm bảng nhân ${a}: ${a} × ${b - 1} = ${a * (b - 1)}, rồi cộng thêm ${a}.`,
             explanation: `Theo bảng nhân ${a}, ta có: ${a} × ${b} = ${prod}. [SGK Kết nối tri thức Tập 1 - Chủ đề 2]`
           };
-        } else {
-          const ansStr = String(b);
+        }
+        if (m === 1) {
           return {
+            templateKey: 'arith_div_direct',
             category: 'arith',
             topicName: 'Bảng chia 2 đến 9',
             sgkCite: 'SGK Toán 3 Tập 1 - Chủ đề 2 (Bài 4, 6, 9, 10, 11, 12)',
             sgkAssetKey: null,
             inputMode: 'numpad',
             questionText: `Tính nhẩm cùng bạn Mai: ${prod} : ${a} = ?`,
-            correctAnswer: ansStr,
+            correctAnswer: String(b),
             numericAnswer: b,
             options: this.makeNumericOptions(b, '', [-3, -2, -1, 1, 2, 3]),
             hint: `Vì ${a} × ${b} = ${prod} nên ${prod} : ${a} = ${b}.`,
             explanation: `Dựa vào bảng chia ${a}: Vì ${a} × ${b} = ${prod} nên ${prod} : ${a} = ${b}. [SGK Kết nối tri thức Tập 1 - Chủ đề 2]`
           };
         }
+        if (m === 2) {
+          return {
+            templateKey: 'arith_mult_story_boats',
+            category: 'arith',
+            topicName: 'Bảng nhân 2 đến 9',
+            sgkCite: 'SGK Toán 3 Tập 1 - Chủ đề 2 (Bài 4, 6, 9, 10, 11, 12)',
+            sgkAssetKey: null,
+            inputMode: 'numpad',
+            questionText: `Mỗi thuyền chở ${a} bạn nhỏ đi khám phá Rừng Pha Lê. Hỏi ${b} thuyền như vậy chở tất cả bao nhiêu bạn nhỏ?`,
+            correctAnswer: `${prod} bạn`,
+            numericAnswer: prod,
+            options: this.makeNumericOptions(prod, 'bạn', [-a, a, -b, b, 3]),
+            hint: `Lấy số bạn trên 1 thuyền nhân với số thuyền: ${a} × ${b}.`,
+            explanation: `${b} thuyền chở tất cả số bạn nhỏ là: ${a} × ${b} = ${prod} (bạn). [SGK Kết nối tri thức Tập 1 - Chủ đề 2]`
+          };
+        }
+        return {
+          templateKey: 'arith_div_story_strawberries',
+          category: 'arith',
+          topicName: 'Bảng chia 2 đến 9',
+          sgkCite: 'SGK Toán 3 Tập 1 - Chủ đề 2 (Bài 4, 6, 9, 10, 11, 12)',
+          sgkAssetKey: null,
+          inputMode: 'numpad',
+          questionText: `Bạn Mi chia đều ${prod} quả dâu tây vào ${a} đĩa. Hỏi mỗi đĩa có mấy quả dâu tây?`,
+          correctAnswer: `${b} quả`,
+          numericAnswer: b,
+          options: this.makeNumericOptions(b, 'quả', [-2, -1, 1, 2, 3]),
+          hint: `Lấy tổng số quả dâu tây chia cho ${a}: ${prod} : ${a}.`,
+          explanation: `Mỗi đĩa có số quả dâu tây là: ${prod} : ${a} = ${b} (quả). [SGK Kết nối tri thức Tập 1 - Chủ đề 2]`
+        };
       }
 
-      // 2. Tìm thành phần chưa biết trong phép tính (Bài 3 & Bài 13 Tập 1)
+      // 2. Tìm thành phần chưa biết trong phép tính (Bài 3 & Bài 13 Tập 1 - 5 dạng đầy đủ)
       if (type === 'unknown_comp') {
-        const mode = this.randInt(1, 3);
-        if (mode === 1) {
-          // Tìm thừa số: ? × a = prod
+        const mode = v % 5;
+        if (mode === 0) {
           const a = this.randInt(3, 9);
           const x = this.randInt(4, 9);
           const prod = a * x;
           return {
+            templateKey: 'unk_factor',
             category: 'arith',
             topicName: 'Tìm thành phần trong phép nhân, phép chia',
             sgkCite: 'SGK Toán 3 Tập 1 - Bài 13, trang 39',
@@ -2593,12 +3209,13 @@ window.MK_SGK_ASSETS = {
             hint: 'Muốn tìm một thừa số, ta lấy tích chia cho thừa số kia.',
             explanation: `Quy tắc Rô-bốt: Muốn tìm một thừa số, ta lấy tích chia cho thừa số kia: ${prod} : ${a} = ${x}. [SGK Kết nối tri thức - Bài 13, trang 39 Tập 1]`
           };
-        } else if (mode === 2) {
-          // Tìm số bị chia: ? : b = q
+        }
+        if (mode === 1) {
           const b = this.randInt(3, 8);
           const q = this.randInt(5, 9);
           const x = b * q;
           return {
+            templateKey: 'unk_dividend',
             category: 'arith',
             topicName: 'Tìm số bị chia',
             sgkCite: 'SGK Toán 3 Tập 1 - Bài 13, trang 40',
@@ -2611,12 +3228,32 @@ window.MK_SGK_ASSETS = {
             hint: 'Muốn tìm số bị chia, ta lấy thương nhân với số chia.',
             explanation: `Quy tắc Rô-bốt: Muốn tìm số bị chia, ta lấy thương nhân với số chia: ${q} × ${b} = ${x}. [SGK Kết nối tri thức - Bài 13, trang 40 Tập 1]`
           };
-        } else {
-          // Tìm số bị trừ: ? - sub = diff
+        }
+        if (mode === 2) {
+          const x = this.randInt(3, 9);
+          const q = this.randInt(4, 9);
+          const dividend = x * q;
+          return {
+            templateKey: 'unk_divisor',
+            category: 'arith',
+            topicName: 'Tìm số chia',
+            sgkCite: 'SGK Toán 3 Tập 1 - Bài 13, trang 40',
+            sgkAssetKey: null,
+            inputMode: 'numpad',
+            questionText: `Tìm số chia chưa biết trong phép tính:  ${dividend} : ? = ${q}`,
+            correctAnswer: String(x),
+            numericAnswer: x,
+            options: this.makeNumericOptions(x, '', [-2, -1, 1, 2, 3]),
+            hint: 'Muốn tìm số chia, ta lấy số bị chia chia cho thương.',
+            explanation: `Quy tắc Rô-bốt: Muốn tìm số chia, ta lấy số bị chia chia cho thương: ${dividend} : ${q} = ${x}. [SGK Kết nối tri thức - Bài 13, trang 40 Tập 1]`
+          };
+        }
+        if (mode === 3) {
           const sub = this.randInt(125, 450);
           const diff = this.randInt(210, 520);
           const x = sub + diff;
           return {
+            templateKey: 'unk_minuend',
             category: 'arith',
             topicName: 'Tìm thành phần trong phép cộng, phép trừ',
             sgkCite: 'SGK Toán 3 Tập 1 - Bài 3, trang 11',
@@ -2630,56 +3267,37 @@ window.MK_SGK_ASSETS = {
             explanation: `Muốn tìm số bị trừ, ta lấy hiệu cộng với số trừ: ${diff} + ${sub} = ${x}. [SGK Kết nối tri thức - Bài 3, trang 11 Tập 1]`
           };
         }
+        const a = this.randInt(140, 420);
+        const x = this.randInt(130, 450);
+        const sum = a + x;
+        return {
+          templateKey: 'unk_addend',
+          category: 'arith',
+          topicName: 'Tìm số hạng chưa biết',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 3, trang 11',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Tìm số hạng chưa biết trong phép cộng:  ${a} + ? = ${sum}`,
+          correctAnswer: this.formatNum(x),
+          numericAnswer: x,
+          options: this.makeNumericOptions(x, '', [-100, -10, 10, 100, 20]),
+          hint: 'Muốn tìm một số hạng, ta lấy tổng trừ đi số hạng kia.',
+          explanation: `Muốn tìm một số hạng, ta lấy tổng trừ đi số hạng kia: ${sum} - ${a} = ${x}. [SGK Kết nối tri thức - Bài 3, trang 11 Tập 1]`
+        };
       }
 
       // 3. Phép chia có dư (Bài 25) hoặc Một phần mấy (Bài 14)
       if (type === 'div_remainder_or_frac') {
-        if (Math.random() < 0.55) {
-          const divisor = this.randInt(4, 9);
-          const quotient = this.randInt(4, 9);
-          const rem = this.randInt(1, divisor - 1);
-          const dividend = divisor * quotient + rem;
-          const correctStr = `${quotient} (dư ${rem})`;
-          const wrong1 = `${quotient} (dư ${rem === 1 ? 2 : rem - 1})`;
-          const wrong2 = `${quotient + 1} (dư ${rem})`;
-          const wrong3 = `${quotient - 1} (dư ${divisor - 1})`;
-          return {
-            category: 'arith',
-            topicName: 'Phép chia hết, phép chia có dư',
-            sgkCite: 'SGK Toán 3 Tập 1 - Bài 25, trang 72',
-            sgkAssetKey: null,
-            inputMode: 'mcq',
-            questionText: `Thực hiện phép chia có dư:  ${dividend} : ${divisor} được thương và số dư là bao nhiêu?`,
-            correctAnswer: correctStr,
-            numericAnswer: null,
-            options: this.shuffle([correctStr, wrong1, wrong2, wrong3]),
-            hint: `Ta có ${divisor} × ${quotient} = ${divisor * quotient}. Lấy ${dividend} - ${divisor * quotient} để tìm số dư (số dư luôn bé hơn số chia ${divisor}).`,
-            explanation: `Vì ${divisor} × ${quotient} = ${divisor * quotient} và ${dividend} - ${divisor * quotient} = ${rem} (bé hơn ${divisor}), nên ${dividend} : ${divisor} = ${quotient} (dư ${rem}). [SGK Kết nối tri thức - Bài 25, trang 72 Tập 1]`
-          };
-        } else {
-          const n = this.randInt(3, 9);
-          const part = this.randInt(4, 9);
-          const total = n * part;
-          return {
-            category: 'arith',
-            topicName: `Một phần mấy (1/${n})`,
-            sgkCite: 'SGK Toán 3 Tập 1 - Bài 14, trang 42',
-            sgkAssetKey: null,
-            inputMode: 'numpad',
-            questionText: `Bà ngoại có ${total} quả cam, bà biếu gia đình Việt 1/${n} số cam đó. Hỏi bà đã biếu bao nhiêu quả cam?`,
-            correctAnswer: String(part),
-            numericAnswer: part,
-            options: this.makeNumericOptions(part, '', [-2, -1, 1, 2, 3]),
-            hint: `Muốn tìm 1/${n} của ${total} quả cam, ta lấy ${total} chia cho ${n}.`,
-            explanation: `1/${n} của ${total} quả cam là: ${total} : ${n} = ${part} (quả cam). [SGK Kết nối tri thức - Bài 14, trang 42 Tập 1]`
-          };
+        if (v % 2 === 0) {
+          return this.genTap1DivRemainderQuestion(v);
         }
+        return this.genTap1OneNthQuestion(v);
       }
 
-      // 4. Tính giá trị của biểu thức số (Bài 38 Tập 1)
+      // 4. Tính giá trị của biểu thức số (Bài 38 Tập 1 - 4 dạng biểu thức)
       if (type === 'expression_val') {
-        const hasParens = Math.random() < 0.5;
-        if (hasParens) {
+        const expMode = v % 4;
+        if (expMode === 0) {
           const a = this.randInt(12, 28);
           const b = this.randInt(8, 22);
           const c = this.randInt(2, 5);
@@ -2687,6 +3305,7 @@ window.MK_SGK_ASSETS = {
           const ans = sum * c;
           const expr = `(${a} + ${b}) × ${c}`;
           return {
+            templateKey: 'expr_paren_add_mult',
             category: 'arith',
             topicName: 'Tính giá trị của biểu thức số có dấu ngoặc',
             sgkCite: 'SGK Toán 3 Tập 1 - Bài 38, trang 106',
@@ -2704,7 +3323,8 @@ window.MK_SGK_ASSETS = {
             hint: `Tính trong ngoặc trước: ${a} + ${b} = ${sum}, sau đó lấy ${sum} × ${c}.`,
             explanation: `Khi biểu thức có dấu ngoặc, ta tính trong ngoặc trước: (${a} + ${b}) × ${c} = ${sum} × ${c} = ${ans}. [SGK Kết nối tri thức - Bài 38, trang 106 Tập 1]`
           };
-        } else {
+        }
+        if (expMode === 1) {
           const a = this.randInt(30, 85);
           const b = this.randInt(4, 9);
           const c = this.randInt(3, 8);
@@ -2712,6 +3332,7 @@ window.MK_SGK_ASSETS = {
           const ans = a + prod;
           const expr = `${a} + ${b} × ${c}`;
           return {
+            templateKey: 'expr_add_then_mult',
             category: 'arith',
             topicName: 'Tính giá trị của biểu thức số',
             sgkCite: 'SGK Toán 3 Tập 1 - Bài 38, trang 105',
@@ -2730,109 +3351,191 @@ window.MK_SGK_ASSETS = {
             explanation: `Ta thực hiện phép nhân trước, phép cộng sau: ${a} + ${b} × ${c} = ${a} + ${prod} = ${ans}. [SGK Kết nối tri thức - Bài 38, trang 105 Tập 1]`
           };
         }
+        if (expMode === 2) {
+          const c = this.randInt(3, 7);
+          const q = this.randInt(6, 14);
+          const diff = c * q;
+          const b = this.randInt(12, 35);
+          const a = b + diff;
+          const expr = `(${a} - ${b}) : ${c}`;
+          return {
+            templateKey: 'expr_paren_sub_div',
+            category: 'arith',
+            topicName: 'Tính giá trị của biểu thức số có dấu ngoặc',
+            sgkCite: 'SGK Toán 3 Tập 1 - Bài 38, trang 106',
+            sgkAssetKey: 'expression_b38',
+            visualData: {
+              type: 'expression_path',
+              exprText: expr,
+              hintRule: 'Khi tính giá trị biểu thức có dấu ngoặc ( ), ta thực hiện phép tính trong ngoặc trước.'
+            },
+            inputMode: 'numpad',
+            questionText: `Tính giá trị của biểu thức:  ${expr}`,
+            correctAnswer: String(q),
+            numericAnswer: q,
+            options: this.makeNumericOptions(q, '', [-3, -1, 1, 3, 5]),
+            hint: `Tính trong ngoặc trước: ${a} - ${b} = ${diff}, rồi lấy ${diff} : ${c}.`,
+            explanation: `Thực hiện phép trừ trong ngoặc trước: (${a} - ${b}) : ${c} = ${diff} : ${c} = ${q}. [SGK Kết nối tri thức - Bài 38, trang 106 Tập 1]`
+          };
+        }
+        const b = this.randInt(4, 9);
+        const c = this.randInt(4, 8);
+        const prod = b * c;
+        const ans = this.randInt(15, 55);
+        const a = prod + ans;
+        const expr = `${a} - ${b} × ${c}`;
+        return {
+          templateKey: 'expr_sub_then_mult',
+          category: 'arith',
+          topicName: 'Tính giá trị của biểu thức số',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 38, trang 105',
+          sgkAssetKey: 'expression_b38',
+          visualData: {
+            type: 'expression_path',
+            exprText: expr,
+            hintRule: 'Trong biểu thức có phép trừ và phép nhân, ta thực hiện phép nhân trước rồi thực hiện phép trừ sau.'
+          },
+          inputMode: 'numpad',
+          questionText: `Tìm giá trị của biểu thức số:  ${expr}`,
+          correctAnswer: String(ans),
+          numericAnswer: ans,
+          options: this.makeNumericOptions(ans, '', [-10, -4, 4, 10, 6]),
+          hint: `Nhân trước: ${b} × ${c} = ${prod}, sau đó lấy ${a} - ${prod}.`,
+          explanation: `Thực hiện phép nhân trước, phép trừ sau: ${a} - ${b} × ${c} = ${a} - ${prod} = ${ans}. [SGK Kết nối tri thức - Bài 38, trang 105 Tập 1]`
+        };
       }
 
-      // 5. Làm quen với chữ số La Mã I đến XX (Bài 47 Tập 2)
+      // 5. Làm quen với chữ số La Mã I đến XX (Bài 47 Tập 2 - 3 dạng câu hỏi khác nhau)
       if (type === 'roman_numerals') {
         const romanMap = [
-          { r: 'IV', v: 4 }, { r: 'VI', v: 6 }, { r: 'VII', v: 7 }, { r: 'VIII', v: 8 },
-          { r: 'IX', v: 9 }, { r: 'XI', v: 11 }, { r: 'XII', v: 12 }, { r: 'XIV', v: 14 },
-          { r: 'XV', v: 15 }, { r: 'XVII', v: 17 }, { r: 'XIX', v: 19 }, { r: 'XX', v: 20 }
+          { r: 'IV', v: 4 }, { r: 'V', v: 5 }, { r: 'VI', v: 6 }, { r: 'VII', v: 7 }, { r: 'VIII', v: 8 },
+          { r: 'IX', v: 9 }, { r: 'X', v: 10 }, { r: 'XI', v: 11 }, { r: 'XII', v: 12 }, { r: 'XIV', v: 14 },
+          { r: 'XV', v: 15 }, { r: 'XVI', v: 16 }, { r: 'XVII', v: 17 }, { r: 'XIX', v: 19 }, { r: 'XX', v: 20 }
         ];
+        const rMode = v % 3;
         const item = this.pick(romanMap);
         const clockHour = item.v <= 12 ? item.v : 9;
+
+        if (rMode === 0) {
+          return {
+            templateKey: 'roman_to_arabic',
+            category: 'arith',
+            topicName: 'Làm quen với chữ số La Mã',
+            sgkCite: 'SGK Toán 3 Tập 2 - Bài 47, trang 12',
+            sgkAssetKey: 'roman_clock_b47',
+            visualData: {
+              type: 'roman_clock',
+              hour: clockHour,
+              minute: 0,
+              highlightRoman: item.v <= 12 ? item.r : 'IX'
+            },
+            inputMode: 'numpad',
+            questionText: `Chữ số La Mã "${item.r}" được đọc là số mấy trong hệ thập phân?`,
+            correctAnswer: String(item.v),
+            numericAnswer: item.v,
+            options: this.makeNumericOptions(item.v, '', [-2, -1, 1, 2, 5]),
+            hint: 'Nhớ quy tắc: I = 1, V = 5, X = 10. Chữ I đứng trước V hoặc X thì trừ đi 1, đứng sau thì cộng thêm!',
+            explanation: `Theo bảng chữ số La Mã (I = 1, V = 5, X = 10), số La Mã ${item.r} biểu diễn số ${item.v}. [SGK Kết nối tri thức - Bài 47, trang 12 Tập 2]`
+          };
+        }
+        if (rMode === 1) {
+          const wrongRomans = this.shuffle(romanMap.filter((x) => x.r !== item.r)).slice(0, 3).map((x) => x.r);
+          return {
+            templateKey: 'arabic_to_roman',
+            category: 'arith',
+            topicName: 'Làm quen với chữ số La Mã',
+            sgkCite: 'SGK Toán 3 Tập 2 - Bài 47, trang 13',
+            sgkAssetKey: 'roman_clock_b47',
+            visualData: {
+              type: 'roman_clock',
+              hour: clockHour,
+              minute: 0,
+              highlightRoman: item.v <= 12 ? item.r : 'XII'
+            },
+            inputMode: 'mcq',
+            questionText: `Số ${item.v} được viết bằng chữ số La Mã là gì?`,
+            correctAnswer: item.r,
+            numericAnswer: null,
+            options: this.shuffle([item.r, ...wrongRomans]),
+            hint: 'Ghép từ các ký hiệu I (1), V (5), X (10) theo quy tắc cộng/trừ của số La Mã.',
+            explanation: `Số ${item.v} được viết bằng chữ số La Mã là ${item.r}. [SGK Kết nối tri thức - Bài 47, trang 13 Tập 2]`
+          };
+        }
+        const hClock = this.randInt(1, 12);
+        const hRoman = ['', 'I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'][hClock];
         return {
+          templateKey: 'roman_clock_hour',
           category: 'arith',
-          topicName: 'Làm quen với chữ số La Mã',
+          topicName: 'Xem đồng hồ chữ số La Mã',
           sgkCite: 'SGK Toán 3 Tập 2 - Bài 47, trang 12',
           sgkAssetKey: 'roman_clock_b47',
           visualData: {
             type: 'roman_clock',
-            hour: clockHour,
+            hour: hClock,
             minute: 0,
-            highlightRoman: item.v <= 12 ? item.r : 'IX'
+            highlightRoman: hRoman
           },
-          inputMode: 'numpad',
-          questionText: `Chữ số La Mã "${item.r}" được đọc là số mấy trong hệ thập phân?`,
-          correctAnswer: String(item.v),
-          numericAnswer: item.v,
-          options: this.makeNumericOptions(item.v, '', [-2, -1, 1, 2, 5]),
-          hint: 'Nhớ quy tắc: I = 1, V = 5, X = 10. Chữ I đứng trước V hoặc X thì trừ đi 1, đứng sau thì cộng thêm!',
-          explanation: `Theo bảng chữ số La Mã (I = 1, V = 5, X = 10), số La Mã ${item.r} biểu diễn số ${item.v}. [SGK Kết nối tri thức - Bài 47, trang 12 Tập 2]`
+          inputMode: 'mcq',
+          questionText: `Trên mặt đồng hồ chữ số La Mã, kim ngắn chỉ đúng vào số "${hRoman}", kim dài chỉ vào số XII. Hỏi đồng hồ đang chỉ mấy giờ đúng?`,
+          correctAnswer: `${hClock} giờ`,
+          numericAnswer: hClock,
+          options: this.makeNumericOptions(hClock, 'giờ', [-2, -1, 1, 2]),
+          hint: `Số La Mã ${hRoman} tương ứng với số ${hClock}.`,
+          explanation: `Vì số La Mã ${hRoman} là ${hClock} và kim phút chỉ số XII (12), nên đồng hồ chỉ ${hClock} giờ đúng. [SGK Kết nối tri thức - Bài 47, trang 12 Tập 2]`
         };
       }
 
       // 6. Cộng, trừ trong phạm vi 10 000 / 100 000 & Làm tròn số (Bài 48, 54, 55, 61, 63, 64 Tập 2)
       if (type === 'large_add_sub_round') {
-        if (Math.random() < 0.45) {
-          // Làm tròn số đến hàng nghìn
-          const thousands = this.randInt(2, 8);
-          const hundreds = this.pick([1, 2, 3, 4, 6, 7, 8, 9]);
-          const tens = this.randInt(1, 9) * 10;
-          const num = thousands * 1000 + hundreds * 100 + tens;
-          const rounded = hundreds >= 5 ? (thousands + 1) * 1000 : thousands * 1000;
-          return {
-            category: 'arith',
-            topicName: 'Làm tròn số đến hàng chục, hàng trăm, hàng nghìn',
-            sgkCite: 'SGK Toán 3 Tập 2 - Bài 48 & Bài 61, trang 15 & 64',
-            sgkAssetKey: null,
-            inputMode: 'mcq',
-            questionText: `Làm tròn số ${this.formatNum(num)} đến hàng nghìn thì được số nào?`,
-            correctAnswer: this.formatNum(rounded),
-            numericAnswer: rounded,
-            options: this.shuffle([
-              this.formatNum(thousands * 1000),
-              this.formatNum((thousands + 1) * 1000),
-              this.formatNum(thousands * 1000 + hundreds * 100),
-              this.formatNum((thousands - 1) * 1000)
-            ]),
-            hint: `Chữ số hàng trăm là ${hundreds}. Nếu hàng trăm từ 5 trở lên thì làm tròn lên, nếu từ 4 trở xuống thì làm tròn xuống!`,
-            explanation: `Khi làm tròn số ${this.formatNum(num)} đến hàng nghìn, ta xét chữ số hàng trăm là ${hundreds} (${hundreds >= 5 ? '≥ 5 nên làm tròn lên' : '< 5 nên làm tròn xuống'}), ta được ${this.formatNum(rounded)}. [SGK Kết nối tri thức - Bài 48 & 61 Tập 2]`
-          };
-        } else {
-          // Cộng hoặc trừ trong phạm vi 100 000
-          const a = this.randInt(12, 45) * 1000 + this.randInt(120, 480);
-          const b = this.randInt(11, 32) * 1000 + this.randInt(110, 390);
-          const sum = a + b;
-          return {
-            category: 'arith',
-            topicName: 'Phép cộng, phép trừ trong phạm vi 100 000',
-            sgkCite: 'SGK Toán 3 Tập 2 - Bài 63 & Bài 64, trang 70–73',
-            sgkAssetKey: null,
-            inputMode: 'mcq',
-            questionText: `Tính:  ${this.formatNum(a)} + ${this.formatNum(b)} = ?`,
-            correctAnswer: this.formatNum(sum),
-            numericAnswer: sum,
-            options: this.makeNumericOptions(sum, '', [-1000, 1000, -100, 100]),
-            hint: 'Đặt tính sao cho các chữ số cùng hàng thẳng cột với nhau rồi cộng từ phải sang trái.',
-            explanation: `Thực hiện cộng từ hàng đơn vị đến hàng chục nghìn: ${this.formatNum(a)} + ${this.formatNum(b)} = ${this.formatNum(sum)}. [SGK Kết nối tri thức - Bài 63, trang 70 Tập 2]`
-          };
+        if (v % 2 === 0) {
+          return this.genTap2Scope10000(v);
         }
+        return this.genTap2Scope100000(v);
       }
 
-      // 7. Nhân/chia số có 3, 4 chữ số với/cho số có 1 chữ số (Bài 36, 37 Tập 1; Bài 56, 57, 70, 71 Tập 2)
-      const factor = this.randInt(3, 6);
-      const base = this.randInt(112, 324);
-      const prod = base * factor;
+      // 7. Nhân/chia số có 3, 4 chữ số với/cho số có 1 chữ số (Bài 36, 37 Tập 1; Bài 56, 57 Tập 2)
+      if (v % 2 === 0) {
+        const factor = this.randInt(3, 6);
+        const base = this.randInt(1105, 2415);
+        const prod = base * factor;
+        return {
+          templateKey: 'arith_mult_4digit',
+          category: 'arith',
+          topicName: 'Nhân số có bốn chữ số với số có một chữ số',
+          sgkCite: 'SGK Toán 3 Tập 2 - Bài 56, trang 45',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Tính tích:  ${this.formatNum(base)} × ${factor} = ?`,
+          correctAnswer: this.formatNum(prod),
+          numericAnswer: prod,
+          options: this.makeNumericOptions(prod, '', [-100, 100, -10, 10, factor * 10]),
+          hint: `Nhân lần lượt từ phải sang trái: lấy ${factor} nhân từ hàng đơn vị đến hàng nghìn của ${this.formatNum(base)}.`,
+          explanation: `Đặt tính và nhân từ phải sang trái: ${this.formatNum(base)} × ${factor} = ${this.formatNum(prod)}. [SGK Kết nối tri thức - Bài 56, trang 45 Tập 2]`
+        };
+      }
+      const divisor = this.randInt(3, 7);
+      const quotient = this.randInt(1020, Math.floor(9600 / divisor));
+      const dividend = quotient * divisor;
       return {
+        templateKey: 'arith_div_4digit',
         category: 'arith',
-        topicName: 'Nhân, chia số có nhiều chữ số với/cho số có một chữ số',
-        sgkCite: 'SGK Toán 3 Tập 2 - Bài 56 & Bài 57, trang 45–49',
+        topicName: 'Chia số có bốn chữ số cho số có một chữ số',
+        sgkCite: 'SGK Toán 3 Tập 2 - Bài 57, trang 48',
         sgkAssetKey: null,
         inputMode: 'mcq',
-        questionText: `Tính tích:  ${base} × ${factor} = ?`,
-        correctAnswer: this.formatNum(prod),
-        numericAnswer: prod,
-        options: this.makeNumericOptions(prod, '', [-10, 10, -factor, factor, 100]),
-        hint: `Nhân lần lượt từ phải sang trái: lấy ${factor} nhân với hàng đơn vị, hàng chục, rồi hàng trăm của ${base}.`,
-        explanation: `Đặt tính và nhân từ phải sang trái: ${base} × ${factor} = ${this.formatNum(prod)}. [SGK Kết nối tri thức - Bài 36 Tập 1 & Bài 56 Tập 2]`
+        questionText: `Tính thương:  ${this.formatNum(dividend)} : ${divisor} = ?`,
+        correctAnswer: this.formatNum(quotient),
+        numericAnswer: quotient,
+        options: this.makeNumericOptions(quotient, '', [-100, 100, -10, 10, 20]),
+        hint: `Chia lần lượt từ trái sang phải số ${this.formatNum(dividend)} cho ${divisor}.`,
+        explanation: `Thực hiện phép chia từ trái sang phải: ${this.formatNum(dividend)} : ${divisor} = ${this.formatNum(quotient)}. [SGK Kết nối tri thức - Bài 57, trang 48 Tập 2]`
       };
     }
 
     /* ------------------------------------------------------------------------
      * ẢI 2: ĐẦM LẦY HÌNH HỌC (HÌNH HỌC & ĐO LƯỜNG - SGK TẬP 1 & TẬP 2)
      * ------------------------------------------------------------------------ */
-    static genGeoQuestion(idx = 0) {
+    static genGeoQuestion(idx = 0, vSeed = 0) {
       const subTypes = [
         'midpoint',
         'circle',
@@ -2843,68 +3546,97 @@ window.MK_SGK_ASSETS = {
         'unit_or_money'
       ];
       const type = subTypes[idx % subTypes.length];
+      const v = vSeed + this.randInt(0, 99);
 
-      // 1. Điểm ở giữa, trung điểm của đoạn thẳng (Bài 16 Tập 1)
+      // 1. Điểm ở giữa, trung điểm của đoạn thẳng (Bài 16 Tập 1 - 3 biến thể)
       if (type === 'midpoint') {
-        const half = this.randInt(4, 14);
+        const segPairs = [
+          { l: 'A', m: 'M', r: 'B' },
+          { l: 'C', m: 'I', r: 'D' },
+          { l: 'M', m: 'O', r: 'N' },
+          { l: 'P', m: 'K', r: 'Q' }
+        ];
+        const seg = this.pick(segPairs);
+        const half = this.randInt(4, 16);
         const total = half * 2;
-        const askTotal = Math.random() < 0.5;
-        if (askTotal) {
+        const mMode = v % 3;
+        if (mMode === 0) {
           return {
+            templateKey: 'geo_midpoint_find_total',
             category: 'geo',
             topicName: 'Điểm ở giữa, trung điểm của đoạn thẳng',
             sgkCite: 'SGK Toán 3 Tập 1 - Bài 16, trang 49',
             sgkAssetKey: 'midpoint_b16',
             visualData: {
               type: 'midpoint',
-              pLeft: 'A',
-              pMid: 'M',
-              pRight: 'B',
+              pLeft: seg.l,
+              pMid: seg.m,
+              pRight: seg.r,
               halfLen: half,
               totalLen: total,
               hidePart: 'total'
             },
             inputMode: 'numpad',
-            questionText: `Cho M là trung điểm của đoạn thẳng AB và biết AM = ${half} cm. Hỏi đoạn thẳng AB dài bao nhiêu xăng-ti-mét?`,
+            questionText: `Cho ${seg.m} là trung điểm của đoạn thẳng ${seg.l}${seg.r} và biết ${seg.l}${seg.m} = ${half} cm. Hỏi đoạn thẳng ${seg.l}${seg.r} dài bao nhiêu xăng-ti-mét?`,
             correctAnswer: `${total} cm`,
             numericAnswer: total,
             options: this.makeNumericOptions(total, 'cm', [-2, 2, -half, 4]),
-            hint: `Vì M là trung điểm của đoạn thẳng AB nên AB = 2 × AM = 2 × ${half} cm.`,
-            explanation: `M là trung điểm của đoạn thẳng AB nên AM = MB = ${half} cm. Độ dài đoạn thẳng AB là: ${half} × 2 = ${total} (cm). [SGK Kết nối tri thức - Bài 16, trang 49 Tập 1]`
+            hint: `Vì ${seg.m} là trung điểm của đoạn thẳng ${seg.l}${seg.r} nên ${seg.l}${seg.r} = 2 × ${seg.l}${seg.m} = 2 × ${half} cm.`,
+            explanation: `${seg.m} là trung điểm của đoạn thẳng ${seg.l}${seg.r} nên ${seg.l}${seg.m} = ${seg.m}${seg.r} = ${half} cm. Độ dài đoạn thẳng ${seg.l}${seg.r} là: ${half} × 2 = ${total} (cm). [SGK Kết nối tri thức - Bài 16, trang 49 Tập 1]`
           };
-        } else {
+        }
+        if (mMode === 1) {
           return {
+            templateKey: 'geo_midpoint_find_half',
             category: 'geo',
             topicName: 'Điểm ở giữa, trung điểm của đoạn thẳng',
             sgkCite: 'SGK Toán 3 Tập 1 - Bài 16, trang 49',
             sgkAssetKey: 'midpoint_b16',
             visualData: {
               type: 'midpoint',
-              pLeft: 'A',
-              pMid: 'M',
-              pRight: 'B',
+              pLeft: seg.l,
+              pMid: seg.m,
+              pRight: seg.r,
               halfLen: half,
               totalLen: total,
               hidePart: 'half'
             },
             inputMode: 'numpad',
-            questionText: `Đoạn thẳng AB dài ${total} cm, M là trung điểm của đoạn thẳng AB. Hỏi đoạn thẳng AM dài bao nhiêu xăng-ti-mét?`,
+            questionText: `Đoạn thẳng ${seg.l}${seg.r} dài ${total} cm, ${seg.m} là trung điểm của đoạn thẳng ${seg.l}${seg.r}. Hỏi đoạn thẳng ${seg.l}${seg.m} dài bao nhiêu xăng-ti-mét?`,
             correctAnswer: `${half} cm`,
             numericAnswer: half,
             options: this.makeNumericOptions(half, 'cm', [-2, -1, 1, 2, half]),
-            hint: `M là trung điểm của AB nên AM = AB : 2 = ${total} : 2.`,
-            explanation: `Vì M là trung điểm của đoạn thẳng AB nên độ dài đoạn thẳng AM là: ${total} : 2 = ${half} (cm). [SGK Kết nối tri thức - Bài 16, trang 49 Tập 1]`
+            hint: `${seg.m} là trung điểm của ${seg.l}${seg.r} nên ${seg.l}${seg.m} = ${seg.l}${seg.r} : 2 = ${total} : 2.`,
+            explanation: `Vì ${seg.m} là trung điểm của đoạn thẳng ${seg.l}${seg.r} nên độ dài đoạn thẳng ${seg.l}${seg.m} là: ${total} : 2 = ${half} (cm). [SGK Kết nối tri thức - Bài 16, trang 49 Tập 1]`
           };
         }
+        const p1 = this.randInt(5, 12);
+        const p2 = this.randInt(6, 14);
+        const sumSeg = p1 + p2;
+        return {
+          templateKey: 'geo_between_point_sum',
+          category: 'geo',
+          topicName: 'Điểm ở giữa của đoạn thẳng',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 16, trang 48',
+          sgkAssetKey: 'midpoint_b16',
+          inputMode: 'numpad',
+          questionText: `Cho ba điểm A, C, B thẳng hàng và điểm C nằm giữa hai điểm A và B. Biết AC = ${p1} cm và CB = ${p2} cm. Hỏi đoạn thẳng AB dài bao nhiêu xăng-ti-mét?`,
+          correctAnswer: `${sumSeg} cm`,
+          numericAnswer: sumSeg,
+          options: this.makeNumericOptions(sumSeg, 'cm', [-3, -1, 1, 3, 5]),
+          hint: `Vì C nằm giữa A và B nên AB = AC + CB = ${p1} + ${p2}.`,
+          explanation: `Vì điểm C nằm giữa hai điểm A và B nên độ dài đoạn thẳng AB là: ${p1} + ${p2} = ${sumSeg} (cm). [SGK Kết nối tri thức - Bài 16, trang 48 Tập 1]`
+        };
       }
 
       // 2. Hình tròn: tâm, bán kính, đường kính (Bài 17 Tập 1)
       if (type === 'circle') {
-        const r = this.randInt(3, 15);
+        const r = this.randInt(3, 18);
         const d = r * 2;
-        const askDiameter = Math.random() < 0.55;
+        const askDiameter = v % 2 === 0;
         if (askDiameter) {
           return {
+            templateKey: 'geo_circle_find_diameter',
             category: 'geo',
             topicName: 'Hình tròn: Tâm, bán kính, đường kính',
             sgkCite: 'SGK Toán 3 Tập 1 - Bài 17, trang 52',
@@ -2924,36 +3656,47 @@ window.MK_SGK_ASSETS = {
             hint: 'Trong một hình tròn, độ dài đường kính gấp 2 lần độ dài bán kính.',
             explanation: `Trong một hình tròn, độ dài đường kính gấp 2 lần độ dài bán kính: AB = ${r} × 2 = ${d} (cm). [SGK Kết nối tri thức - Bài 17, trang 52 Tập 1]`
           };
-        } else {
-          return {
-            category: 'geo',
-            topicName: 'Hình tròn: Tâm, bán kính, đường kính',
-            sgkCite: 'SGK Toán 3 Tập 1 - Bài 17, trang 52',
-            sgkAssetKey: 'circle_b17',
-            visualData: {
-              type: 'circle',
-              center: 'O',
-              radius: r,
-              diameter: d,
-              askType: 'radius'
-            },
-            inputMode: 'numpad',
-            questionText: `Một hình tròn tâm O có đường kính AB = ${d} cm. Bán kính OM của hình tròn đó dài bao nhiêu xăng-ti-mét?`,
-            correctAnswer: `${r} cm`,
-            numericAnswer: r,
-            options: this.makeNumericOptions(r, 'cm', [-2, -1, 1, 2, r]),
-            hint: 'Tâm O là trung điểm của đường kính AB, nên bán kính bằng đường kính chia cho 2.',
-            explanation: `Độ dài bán kính bằng một nửa độ dài đường kính: OM = ${d} : 2 = ${r} (cm). [SGK Kết nối tri thức - Bài 17, trang 52 Tập 1]`
-          };
         }
+        return {
+          templateKey: 'geo_circle_find_radius',
+          category: 'geo',
+          topicName: 'Hình tròn: Tâm, bán kính, đường kính',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 17, trang 52',
+          sgkAssetKey: 'circle_b17',
+          visualData: {
+            type: 'circle',
+            center: 'O',
+            radius: r,
+            diameter: d,
+            askType: 'radius'
+          },
+          inputMode: 'numpad',
+          questionText: `Một hình tròn tâm O có đường kính AB = ${d} cm. Bán kính OM của hình tròn đó dài bao nhiêu xăng-ti-mét?`,
+          correctAnswer: `${r} cm`,
+          numericAnswer: r,
+          options: this.makeNumericOptions(r, 'cm', [-2, -1, 1, 2, r]),
+          hint: 'Tâm O là trung điểm của đường kính AB, nên bán kính bằng đường kính chia cho 2.',
+          explanation: `Độ dài bán kính bằng một nửa độ dài đường kính: OM = ${d} : 2 = ${r} (cm). [SGK Kết nối tri thức - Bài 17, trang 52 Tập 1]`
+        };
       }
 
-      // 3. Góc vuông, góc không vuông với thước Ê-ke (Bài 18) hoặc Khối lập phương/hộp chữ nhật (Bài 21)
+      // 3. Góc vuông/không vuông (Bài 18), Hình tam giác/tứ giác (Bài 19), Khối lập phương/hộp chữ nhật (Bài 21)
       if (type === 'angle_or_cube') {
-        if (Math.random() < 0.6) {
+        const subGeo = v % 3;
+        if (subGeo === 0) {
           const isRight = Math.random() < 0.55;
-          const correctStr = isRight ? 'Góc vuông đỉnh O, cạnh OA và OB' : 'Góc không vuông đỉnh O, cạnh OA và OB';
+          const vNames = [
+            { v: 'O', a1: 'A', a2: 'B' },
+            { v: 'I', a1: 'M', a2: 'N' },
+            { v: 'K', a1: 'P', a2: 'Q' },
+            { v: 'H', a1: 'C', a2: 'D' }
+          ];
+          const vn = this.pick(vNames);
+          const correctStr = isRight
+            ? `Góc vuông đỉnh ${vn.v}, cạnh ${vn.v}${vn.a1} và ${vn.v}${vn.a2}`
+            : `Góc không vuông đỉnh ${vn.v}, cạnh ${vn.v}${vn.a1} và ${vn.v}${vn.a2}`;
           return {
+            templateKey: isRight ? `geo_angle_right_${vn.v}` : `geo_angle_nonright_${vn.v}`,
             category: 'geo',
             topicName: 'Góc, góc vuông, góc không vuông (Thước Ê-ke)',
             sgkCite: 'SGK Toán 3 Tập 1 - Bài 18, trang 54',
@@ -2961,32 +3704,34 @@ window.MK_SGK_ASSETS = {
             visualData: {
               type: 'angle',
               isRightAngle: isRight,
-              vertex: 'O',
-              arm1: 'A',
-              arm2: 'B'
+              vertex: vn.v,
+              arm1: vn.a1,
+              arm2: vn.a2
             },
             inputMode: 'mcq',
-            questionText: `Bạn Rô-bốt đặt thước Ê-ke vào góc đỉnh O như hình vẽ. Em hãy cho biết góc đỉnh O là góc gì?`,
+            questionText: `Rô-bốt dùng thước Ê-ke kiểm tra góc đỉnh ${vn.v} (cạnh ${vn.v}${vn.a1}, ${vn.v}${vn.a2}) như hình vẽ. Góc đỉnh ${vn.v} là góc gì?`,
             correctAnswer: correctStr,
             numericAnswer: null,
             options: [
-              'Góc vuông đỉnh O, cạnh OA và OB',
-              'Góc không vuông đỉnh O, cạnh OA và OB',
-              'Góc vuông đỉnh A, cạnh AO và AB',
-              'Đường thẳng OA và OB'
+              `Góc vuông đỉnh ${vn.v}, cạnh ${vn.v}${vn.a1} và ${vn.v}${vn.a2}`,
+              `Góc không vuông đỉnh ${vn.v}, cạnh ${vn.v}${vn.a1} và ${vn.v}${vn.a2}`,
+              `Góc vuông đỉnh ${vn.a1}, cạnh ${vn.a1}${vn.v} và ${vn.a1}${vn.a2}`,
+              `Đoạn thẳng ${vn.a1}${vn.a2}`
             ],
-            hint: 'Quan sát xem hai cạnh OA, OB có trùng khít với hai cạnh góc vuông của thước Ê-ke hay không.',
+            hint: `Quan sát xem hai cạnh ${vn.v}${vn.a1}, ${vn.v}${vn.a2} có trùng khít với hai cạnh góc vuông của thước Ê-ke hay không.`,
             explanation: isRight
-              ? `Hai cạnh OA và OB trùng khít với hai cạnh góc vuông của thước ê-ke nên đây là Góc vuông đỉnh O, cạnh OA, OB. [SGK Kết nối tri thức - Bài 18, trang 54 Tập 1]`
-              : `Cạnh OA không trùng với cạnh góc vuông của thước ê-ke nên góc đỉnh O là Góc không vuông. [SGK Kết nối tri thức - Bài 18, trang 54 Tập 1]`
+              ? `Hai cạnh ${vn.v}${vn.a1} và ${vn.v}${vn.a2} trùng khít với hai cạnh góc vuông của thước ê-ke nên đây là Góc vuông đỉnh ${vn.v}. [SGK Kết nối tri thức - Bài 18, trang 54 Tập 1]`
+              : `Cạnh của góc không trùng khít với cạnh góc vuông của thước ê-ke nên góc đỉnh ${vn.v} là Góc không vuông. [SGK Kết nối tri thức - Bài 18, trang 54 Tập 1]`
           };
-        } else {
+        }
+        if (subGeo === 1) {
           const prop = this.pick([
-            { q: 'Khối lập phương và khối hộp chữ nhật đều có bao nhiêu ĐỈNH?', a: 8, w: [6, 10, 12], desc: '8 đỉnh, 12 cạnh và 6 mặt' },
-            { q: 'Khối lập phương và khối hộp chữ nhật đều có bao nhiêu CẠNH?', a: 12, w: [6, 8, 10], desc: '8 đỉnh, 12 cạnh và 6 mặt' },
-            { q: 'Khối lập phương có tất cả bao nhiêu MẶT đều là hình vuông?', a: 6, w: [4, 8, 12], desc: '6 mặt đều là hình vuông' }
+            { key: 'cube_vertices', q: 'Khối lập phương và khối hộp chữ nhật đều có tất cả bao nhiêu ĐỈNH?', a: 8, w: [6, 10, 12], desc: '8 đỉnh, 12 cạnh và 6 mặt' },
+            { key: 'cube_edges', q: 'Khối lập phương và khối hộp chữ nhật đều có tất cả bao nhiêu CẠNH?', a: 12, w: [6, 8, 10], desc: '8 đỉnh, 12 cạnh và 6 mặt' },
+            { key: 'cube_faces', q: 'Khối lập phương của Rô-bốt có tất cả bao nhiêu MẶT đều là hình vuông?', a: 6, w: [4, 8, 12], desc: '6 mặt đều là hình vuông' }
           ]);
           return {
+            templateKey: prop.key,
             category: 'geo',
             topicName: 'Khối lập phương, khối hộp chữ nhật',
             sgkCite: 'SGK Toán 3 Tập 1 - Bài 21, trang 62',
@@ -3000,16 +3745,33 @@ window.MK_SGK_ASSETS = {
             explanation: `Theo Bài 21 SGK Kết nối tri thức: Khối lập phương và khối hộp chữ nhật đều có ${prop.desc}. [SGK Kết nối tri thức - Bài 21, trang 62 Tập 1]`
           };
         }
+        const nQuad = this.randInt(2, 5);
+        const totalSides = nQuad * 4;
+        return {
+          templateKey: 'geo_quad_vertices_sides',
+          category: 'geo',
+          topicName: 'Hình tam giác, hình tứ giác. Hình chữ nhật, hình vuông',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 19 & Bài 20, trang 57-60',
+          sgkAssetKey: null,
+          inputMode: 'mcq',
+          questionText: `Mỗi hình tứ giác có 4 đỉnh và 4 cạnh. Hỏi ${nQuad} hình tứ giác rời nhau có tất cả bao nhiêu cạnh?`,
+          correctAnswer: `${totalSides} cạnh`,
+          numericAnswer: totalSides,
+          options: this.makeNumericOptions(totalSides, 'cạnh', [-4, -2, 2, 4]),
+          hint: `Lấy 4 cạnh của 1 hình tứ giác nhân với ${nQuad}.`,
+          explanation: `Mỗi hình tứ giác có 4 cạnh, vậy ${nQuad} hình tứ giác có: 4 × ${nQuad} = ${totalSides} (cạnh). [SGK Kết nối tri thức - Bài 19, trang 57 Tập 1]`
+        };
       }
 
       // 4. Chu vi hình chữ nhật, hình vuông (Bài 50, 51 Tập 2)
       if (type === 'perimeter') {
-        const isRect = Math.random() < 0.6;
+        const isRect = v % 2 === 0;
         if (isRect) {
-          const len = this.randInt(6, 14);
+          const len = this.randInt(6, 16);
           const wid = this.randInt(3, len - 1);
           const peri = (len + wid) * 2;
           return {
+            templateKey: 'geo_peri_rect',
             category: 'geo',
             topicName: 'Chu vi hình chữ nhật',
             sgkCite: 'SGK Toán 3 Tập 2 - Bài 50, trang 22',
@@ -3029,40 +3791,41 @@ window.MK_SGK_ASSETS = {
             hint: `Muốn tính chu vi hình chữ nhật, ta lấy (chiều dài + chiều rộng) × 2 = (${len} + ${wid}) × 2.`,
             explanation: `Chu vi hình chữ nhật là: (${len} + ${wid}) × 2 = ${peri} (cm). [SGK Kết nối tri thức - Bài 50, trang 22 Tập 2]`
           };
-        } else {
-          const side = this.randInt(4, 15);
-          const peri = side * 4;
-          return {
-            category: 'geo',
-            topicName: 'Chu vi hình vuông',
-            sgkCite: 'SGK Toán 3 Tập 2 - Bài 50, trang 23',
-            sgkAssetKey: 'perimeter_b50',
-            visualData: {
-              type: 'rect_grid',
-              length: side,
-              width: side,
-              unit: 'cm',
-              showGrid: false
-            },
-            inputMode: 'numpad',
-            questionText: `Tính chu vi của hình vuông có độ dài cạnh bằng ${side} cm (đơn vị: cm).`,
-            correctAnswer: `${peri} cm`,
-            numericAnswer: peri,
-            options: this.makeNumericOptions(peri, 'cm', [side * side - peri, -side, side, 4]),
-            hint: `Muốn tính chu vi hình vuông, ta lấy độ dài một cạnh nhân với 4: ${side} × 4.`,
-            explanation: `Chu vi của hình vuông là: ${side} × 4 = ${peri} (cm). [SGK Kết nối tri thức - Bài 50, trang 23 Tập 2]`
-          };
         }
+        const side = this.randInt(4, 18);
+        const peri = side * 4;
+        return {
+          templateKey: 'geo_peri_square',
+          category: 'geo',
+          topicName: 'Chu vi hình vuông',
+          sgkCite: 'SGK Toán 3 Tập 2 - Bài 50, trang 23',
+          sgkAssetKey: 'perimeter_b50',
+          visualData: {
+            type: 'rect_grid',
+            length: side,
+            width: side,
+            unit: 'cm',
+            showGrid: false
+          },
+          inputMode: 'numpad',
+          questionText: `Tính chu vi của hình vuông có độ dài cạnh bằng ${side} cm (đơn vị: cm).`,
+          correctAnswer: `${peri} cm`,
+          numericAnswer: peri,
+          options: this.makeNumericOptions(peri, 'cm', [side * side - peri, -side, side, 4]),
+          hint: `Muốn tính chu vi hình vuông, ta lấy độ dài một cạnh nhân với 4: ${side} × 4.`,
+          explanation: `Chu vi của hình vuông là: ${side} × 4 = ${peri} (cm). [SGK Kết nối tri thức - Bài 50, trang 23 Tập 2]`
+        };
       }
 
       // 5. Diện tích hình chữ nhật, diện tích hình vuông (Bài 52 Tập 2)
       if (type === 'area') {
-        const isRect = Math.random() < 0.6;
+        const isRect = v % 2 === 0;
         if (isRect) {
-          const len = this.randInt(5, 9);
-          const wid = this.randInt(3, 6);
+          const len = this.randInt(5, 11);
+          const wid = this.randInt(3, 7);
           const area = len * wid;
           return {
+            templateKey: 'geo_area_rect',
             category: 'geo',
             topicName: 'Diện tích hình chữ nhật (cm²)',
             sgkCite: 'SGK Toán 3 Tập 2 - Bài 52, trang 30',
@@ -3082,39 +3845,39 @@ window.MK_SGK_ASSETS = {
             hint: `Muốn tính diện tích hình chữ nhật, ta lấy chiều dài nhân với chiều rộng: ${len} × ${wid}.`,
             explanation: `Diện tích hình chữ nhật là: ${len} × ${wid} = ${area} (cm²). [SGK Kết nối tri thức - Bài 52, trang 30 Tập 2]`
           };
-        } else {
-          const side = this.randInt(4, 9);
-          const area = side * side;
-          return {
-            category: 'geo',
-            topicName: 'Diện tích hình vuông (cm²)',
-            sgkCite: 'SGK Toán 3 Tập 2 - Bài 52, trang 31',
-            sgkAssetKey: 'area_grid_b52',
-            visualData: {
-              type: 'rect_grid',
-              length: side,
-              width: side,
-              unit: 'cm',
-              showGrid: true
-            },
-            inputMode: 'numpad',
-            questionText: `Một nhãn vở hình vuông có cạnh dài ${side} cm. Diện tích của nhãn vở đó bằng bao nhiêu xăng-ti-mét vuông (cm²)?`,
-            correctAnswer: `${area} cm²`,
-            numericAnswer: area,
-            options: this.makeNumericOptions(area, 'cm²', [side * 4 - area, -side, side, 2]),
-            hint: `Muốn tính diện tích hình vuông, ta lấy độ dài một cạnh nhân với chính nó: ${side} × ${side}.`,
-            explanation: `Diện tích hình vuông là: ${side} × ${side} = ${area} (cm²). [SGK Kết nối tri thức - Bài 52, trang 31 Tập 2]`
-          };
         }
+        const side = this.randInt(4, 10);
+        const area = side * side;
+        return {
+          templateKey: 'geo_area_square',
+          category: 'geo',
+          topicName: 'Diện tích hình vuông (cm²)',
+          sgkCite: 'SGK Toán 3 Tập 2 - Bài 52, trang 31',
+          sgkAssetKey: 'area_grid_b52',
+          visualData: {
+            type: 'rect_grid',
+            length: side,
+            width: side,
+            unit: 'cm',
+            showGrid: true
+          },
+          inputMode: 'numpad',
+          questionText: `Một nhãn vở hình vuông có cạnh dài ${side} cm. Diện tích của nhãn vở đó bằng bao nhiêu xăng-ti-mét vuông (cm²)?`,
+          correctAnswer: `${area} cm²`,
+          numericAnswer: area,
+          options: this.makeNumericOptions(area, 'cm²', [side * 4 - area, -side, side, 2]),
+          hint: `Muốn tính diện tích hình vuông, ta lấy độ dài một cạnh nhân với chính nó: ${side} × ${side}.`,
+          explanation: `Diện tích hình vuông là: ${side} × ${side} = ${area} (cm²). [SGK Kết nối tri thức - Bài 52, trang 31 Tập 2]`
+        };
       }
 
       // 6. Xem đồng hồ chính xác đến từng phút (Bài 66 Tập 2)
       if (type === 'clock_time') {
         const hour = this.randInt(1, 11);
-        const minute = this.pick([5, 10, 15, 20, 25, 35, 40, 45, 50, 55, 12, 23, 38]);
+        const minute = this.pick([5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 12, 23, 38]);
         const nextHour = hour === 12 ? 1 : hour + 1;
         let correctStr = `${hour} giờ ${minute} phút`;
-        if (minute >= 40 && Math.random() < 0.45) {
+        if (minute >= 40 && v % 2 === 1) {
           correctStr = `${hour} giờ ${minute} phút (hay ${nextHour} giờ kém ${60 - minute} phút)`;
         }
         const w1 = `${hour} giờ ${(minute + 5) % 60 || 5} phút`;
@@ -3122,6 +3885,7 @@ window.MK_SGK_ASSETS = {
         const w3 = `${hour} giờ ${Math.max(1, Math.round(minute / 5))} phút`;
 
         return {
+          templateKey: minute >= 40 ? 'geo_clock_kem' : 'geo_clock_hon',
           category: 'geo',
           topicName: 'Xem đồng hồ chính xác đến từng phút',
           sgkCite: 'SGK Toán 3 Tập 2 - Bài 66, trang 77',
@@ -3141,54 +3905,17 @@ window.MK_SGK_ASSETS = {
         };
       }
 
-      // 7. Đổi đơn vị đo mi-li-mét (Bài 30 Tập 1) hoặc Tiền Việt Nam (Bài 68 Tập 2)
-      if (Math.random() < 0.5) {
-        const cmVal = this.randInt(2, 7);
-        const mmVal = cmVal * 10;
-        return {
-          category: 'geo',
-          topicName: 'Đơn vị đo độ dài Mi-li-mét (mm)',
-          sgkCite: 'SGK Toán 3 Tập 1 - Bài 30, trang 85',
-          sgkAssetKey: 'mm_ruler_b30',
-          visualData: {
-            type: 'mm_ruler',
-            cmVal,
-            mmVal
-          },
-          inputMode: 'numpad',
-          questionText: `Quan sát thước đo của Rô-bốt và đổi đơn vị:  ${cmVal} cm = ... mm?`,
-          correctAnswer: `${mmVal} mm`,
-          numericAnswer: mmVal,
-          options: this.makeNumericOptions(mmVal, 'mm', [-10, 10, cmVal * 100 - mmVal, 5]),
-          hint: 'Ta có 1 cm = 10 mm. Vậy nhân số xăng-ti-mét với 10!',
-          explanation: `Vì 1 cm = 10 mm nên ${cmVal} cm = ${mmVal} mm. [SGK Kết nối tri thức - Bài 30, trang 85 Tập 1]`
-        };
-      } else {
-        const penPrice = this.pick([5000, 8000, 10000]);
-        const bookPrice = this.pick([12000, 15000, 20000]);
-        const paid = 50000;
-        const total = penPrice + bookPrice;
-        const change = paid - total;
-        return {
-          category: 'geo',
-          topicName: 'Tiền Việt Nam',
-          sgkCite: 'SGK Toán 3 Tập 2 - Bài 68, trang 85',
-          sgkAssetKey: 'vn_money_b68',
-          inputMode: 'mcq',
-          questionText: `Mai mua một chiếc bút giá ${this.formatNum(penPrice)} đồng và một quyển vở giá ${this.formatNum(bookPrice)} đồng. Mai đưa cho cô bán hàng tờ tiền ${this.formatNum(paid)} đồng. Hỏi cô bán hàng phải trả lại Mai bao nhiêu tiền?`,
-          correctAnswer: `${this.formatNum(change)} đồng`,
-          numericAnswer: change,
-          options: this.makeNumericOptions(change, 'đồng', [-5000, 5000, 10000, total - change]),
-          hint: `Bước 1: Tính tổng số tiền mua bút và vở (${this.formatNum(penPrice)} + ${this.formatNum(bookPrice)}). Bước 2: Lấy ${this.formatNum(paid)} đồng trừ đi tổng đó.`,
-          explanation: `Tổng số tiền mua bút và vở là: ${this.formatNum(penPrice)} + ${this.formatNum(bookPrice)} = ${this.formatNum(total)} (đồng). Số tiền cô bán hàng trả lại Mai là: ${this.formatNum(paid)} - ${this.formatNum(total)} = ${this.formatNum(change)} (đồng). [SGK Kết nối tri thức - Bài 68, trang 85 Tập 2]`
-        };
+      // 7. Đổi đơn vị đo hoặc Tiền Việt Nam
+      if (v % 2 === 0) {
+        return this.genUnitConversionQuestion(v);
       }
+      return this.genTap2TimeMoneyQuestion(v);
     }
 
     /* ------------------------------------------------------------------------
      * ẢI 3: MÊ CUNG LỜI VĂN (GIẢI TOÁN CÓ LỜI VĂN VỚI VIỆT, NAM, MAI, MI, RÔ-BỐT)
      * ------------------------------------------------------------------------ */
-    static genWordQuestion(idx = 0) {
+    static genWordQuestion(idx = 0, vSeed = 0) {
       const subTypes = [
         'fold_up',
         'fold_down',
@@ -3197,85 +3924,158 @@ window.MK_SGK_ASSETS = {
         'two_step_mult_total'
       ];
       const type = subTypes[idx % subTypes.length];
+      const v = vSeed + this.randInt(0, 99);
 
-      // 1. Gấp một số lên một số lần (Bài 24 Tập 1)
+      // 1. Gấp một số lên một số lần (Bài 24 Tập 1 - 3 ngữ cảnh SGK)
       if (type === 'fold_up') {
-        const viet = this.randInt(6, 12);
+        const base = this.randInt(6, 14);
         const times = this.randInt(3, 6);
-        const mai = viet * times;
+        const ans = base * times;
+        const stories = [
+          {
+            key: 'word_foldup_boats',
+            unit: 'chiếc',
+            q: `Bạn Việt gấp được ${base} chiếc thuyền giấy, bạn Mai gấp được số thuyền giấy gấp ${times} lần số thuyền của Việt. Hỏi bạn Mai gấp được bao nhiêu chiếc thuyền giấy?`
+          },
+          {
+            key: 'word_foldup_lanterns',
+            unit: 'chiếc',
+            q: `Nam làm được ${base} chiếc lồng đèn ông sao, Rô-bốt làm được số lồng đèn gấp ${times} lần của Nam. Hỏi Rô-bốt làm được bao nhiêu chiếc lồng đèn?`
+          },
+          {
+            key: 'word_foldup_pencils',
+            unit: 'chiếc',
+            q: `Ngăn trên có ${base} chiếc bút chì màu, số bút ở ngăn dưới gấp ${times} lần số bút ở ngăn trên. Hỏi ngăn dưới có bao nhiêu chiếc bút chì màu?`
+          }
+        ];
+        const st = stories[v % stories.length];
         return {
+          templateKey: st.key,
           category: 'word',
           topicName: 'Gấp một số lên một số lần',
           sgkCite: 'SGK Toán 3 Tập 1 - Bài 24, trang 70',
           sgkAssetKey: 'mult_fold_b24',
           inputMode: 'numpad',
-          questionText: `Bạn Việt gấp được ${viet} chiếc thuyền giấy, bạn Mai gấp được số thuyền giấy gấp ${times} lần số thuyền của Việt. Hỏi bạn Mai gấp được bao nhiêu chiếc thuyền giấy?`,
-          correctAnswer: `${mai} chiếc`,
-          numericAnswer: mai,
-          options: this.makeNumericOptions(mai, 'chiếc', [viet + times - mai, -viet, viet, 4]),
-          hint: `Muốn gấp một số lên một số lần, ta lấy số đó nhân với số lần: ${viet} × ${times}.`,
-          explanation: `Số chiếc thuyền giấy bạn Mai gấp được là: ${viet} × ${times} = ${mai} (chiếc). [SGK Kết nối tri thức - Bài 24, trang 70 Tập 1]`
+          questionText: st.q,
+          correctAnswer: `${ans} ${st.unit}`,
+          numericAnswer: ans,
+          options: this.makeNumericOptions(ans, st.unit, [base + times - ans, -base, base, 4]),
+          hint: `Muốn gấp một số lên một số lần, ta lấy số đó nhân với số lần: ${base} × ${times}.`,
+          explanation: `Áp dụng quy tắc gấp một số lên một số lần: ${base} × ${times} = ${ans} (${st.unit}). [SGK Kết nối tri thức - Bài 24, trang 70 Tập 1]`
         };
       }
 
-      // 2. Giảm một số đi một số lần (Bài 27 Tập 1)
+      // 2. Giảm một số đi một số lần (Bài 27 Tập 1 - 3 ngữ cảnh SGK)
       if (type === 'fold_down') {
         const times = this.randInt(3, 7);
-        const after = this.randInt(5, 11);
+        const after = this.randInt(5, 12);
         const before = after * times;
+        const stories = [
+          {
+            key: 'word_folddown_rope',
+            unit: 'm',
+            q: `Rô-bốt có một sợi dây cáp dài ${before} m. Sau khi cắt bớt để lắp trạm năng lượng, độ dài sợi dây giảm đi ${times} lần. Hỏi sợi dây còn lại dài bao nhiêu mét?`
+          },
+          {
+            key: 'word_folddown_books',
+            unit: 'quyển',
+            q: `Lúc đầu trên giá sách có ${before} quyển truyện. Sau khi các bạn mượn đọc, số sách còn lại giảm đi ${times} lần. Hỏi trên giá còn lại bao nhiêu quyển truyện?`
+          },
+          {
+            key: 'word_folddown_time',
+            unit: 'phút',
+            q: `Hôm qua Việt giải bài toán mất ${before} phút. Hôm nay nhờ bí kíp của Rô-bốt, thời gian giải bài giảm đi ${times} lần. Hỏi hôm nay Việt giải toán hết bao nhiêu phút?`
+          }
+        ];
+        const st = stories[v % stories.length];
         return {
+          templateKey: st.key,
           category: 'word',
           topicName: 'Giảm một số đi một số lần',
           sgkCite: 'SGK Toán 3 Tập 1 - Bài 27, trang 79',
           sgkAssetKey: 'mult_fold_b24',
           inputMode: 'numpad',
-          questionText: `Rô-bốt có một sợi dây cáp dài ${before} m. Sau khi cắt bớt để lắp trạm năng lượng, độ dài sợi dây giảm đi ${times} lần. Hỏi sợi dây còn lại dài bao nhiêu mét?`,
-          correctAnswer: `${after} m`,
+          questionText: st.q,
+          correctAnswer: `${after} ${st.unit}`,
           numericAnswer: after,
-          options: this.makeNumericOptions(after, 'm', [before - times - after, -2, 2, 5]),
+          options: this.makeNumericOptions(after, st.unit, [before - times - after, -2, 2, 5]),
           hint: `Muốn giảm một số đi một số lần, ta lấy số đó chia cho số lần: ${before} : ${times}.`,
-          explanation: `Độ dài sợi dây còn lại là: ${before} : ${times} = ${after} (m). [SGK Kết nối tri thức - Bài 27, trang 79 Tập 1]`
+          explanation: `Áp dụng quy tắc giảm một số đi một số lần: ${before} : ${times} = ${after} (${st.unit}). [SGK Kết nối tri thức - Bài 27, trang 79 Tập 1]`
         };
       }
 
-      // 3. So sánh số lớn gấp mấy lần số bé (Bài 39 Tập 1)
+      // 3. So sánh số lớn gấp mấy lần số bé (Bài 39 Tập 1 - 3 ngữ cảnh SGK)
       if (type === 'compare_times') {
         const small = this.randInt(4, 9);
         const times = this.randInt(3, 8);
         const big = small * times;
+        const stories = [
+          {
+            key: 'word_compare_flowers',
+            q: `Trong vườn cây của trường, Nam trồng được ${big} cây hoa, Mi trồng được ${small} cây hoa. Hỏi số cây hoa của Nam gấp mấy lần số cây hoa của Mi?`
+          },
+          {
+            key: 'word_compare_ribbons',
+            q: `Băng giấy màu xanh dài ${big} cm, băng giấy màu đỏ dài ${small} cm. Hỏi băng giấy màu xanh dài gấp mấy lần băng giấy màu đỏ?`
+          },
+          {
+            key: 'word_compare_Badges',
+            q: `Rô-bốt thu thập được ${big} ngôi sao năng lượng, Việt thu thập được ${small} ngôi sao. Hỏi số ngôi sao của Rô-bốt gấp mấy lần của Việt?`
+          }
+        ];
+        const st = stories[v % stories.length];
         return {
+          templateKey: st.key,
           category: 'word',
           topicName: 'So sánh số lớn gấp mấy lần số bé',
           sgkCite: 'SGK Toán 3 Tập 1 - Bài 39, trang 109',
           sgkAssetKey: 'mult_fold_b24',
           inputMode: 'numpad',
-          questionText: `Trong vườn cây của trường, Nam trồng được ${big} cây hoa, Mi trồng được ${small} cây hoa. Hỏi số cây hoa của Nam gấp mấy lần số cây hoa của Mi?`,
+          questionText: st.q,
           correctAnswer: `${times} lần`,
           numericAnswer: times,
           options: this.makeNumericOptions(times, 'lần', [big - small - times, -1, 1, 2]),
           hint: `Muốn biết số lớn gấp mấy lần số bé, ta lấy số lớn chia cho số bé: ${big} : ${small}.`,
-          explanation: `Số cây hoa của Nam gấp số cây hoa của Mi số lần là: ${big} : ${small} = ${times} (lần). [SGK Kết nối tri thức - Bài 39, trang 109 Tập 1]`
+          explanation: `Số lớn gấp số bé số lần là: ${big} : ${small} = ${times} (lần). [SGK Kết nối tri thức - Bài 39, trang 109 Tập 1]`
         };
       }
 
       // 4. Bài toán giải bằng hai bước tính (Hơn/kém + Tổng hai phần - Bài 28 Tập 1)
       if (type === 'two_step_add_diff') {
-        const first = this.randInt(18, 35);
+        const first = this.randInt(16, 36);
         const diff = this.randInt(5, 14);
-        const second = first + diff;
+        const isMore = v % 2 === 0;
+        const second = isMore ? first + diff : first - diff;
         const total = first + second;
+        if (isMore) {
+          return {
+            templateKey: 'word_2step_more_honey',
+            category: 'word',
+            topicName: 'Bài toán giải bằng hai bước tính',
+            sgkCite: 'SGK Toán 3 Tập 1 - Bài 28, trang 81',
+            sgkAssetKey: 'two_step_b28',
+            inputMode: 'numpad',
+            questionText: `Thùng thứ nhất đựng ${first} lít mật ong rừng. Thùng thứ hai đựng nhiều hơn thùng thứ nhất ${diff} lít. Hỏi cả hai thùng đựng tất cả bao nhiêu lít mật ong?`,
+            correctAnswer: `${total} lít`,
+            numericAnswer: total,
+            options: this.makeNumericOptions(total, 'lít', [second - total, -diff, diff, 10]),
+            hint: `Bước 1: Tìm số lít ở thùng thứ hai (${first} + ${diff} = ${second} lít).\nBước 2: Tính tổng cả hai thùng (${first} + ${second}).`,
+            explanation: `Giải bằng 2 bước tính:\n• Bước 1: Thùng thứ hai có: ${first} + ${diff} = ${second} (lít).\n• Bước 2: Cả hai thùng có: ${first} + ${second} = ${total} (lít). [SGK Kết nối tri thức - Bài 28, trang 81 Tập 1]`
+          };
+        }
         return {
+          templateKey: 'word_2step_less_trees',
           category: 'word',
           topicName: 'Bài toán giải bằng hai bước tính',
-          sgkCite: 'SGK Toán 3 Tập 1 - Bài 28, trang 81',
+          sgkCite: 'SGK Toán 3 Tập 1 - Bài 28, trang 82',
           sgkAssetKey: 'two_step_b28',
           inputMode: 'numpad',
-          questionText: `Thùng thứ nhất đựng ${first} lít mật ong rừng. Thùng thứ hai đựng nhiều hơn thùng thứ nhất ${diff} lít. Hỏi cả hai thùng đựng tất cả bao nhiêu lít mật ong?`,
-          correctAnswer: `${total} lít`,
+          questionText: `Đội Một trồng được ${first} cây thông, Đội Hai trồng được ít hơn Đội Một ${diff} cây thông. Hỏi cả hai đội trồng được tất cả bao nhiêu cây thông?`,
+          correctAnswer: `${total} cây`,
           numericAnswer: total,
-          options: this.makeNumericOptions(total, 'lít', [second - total, -diff, diff, 10]),
-          hint: `Bước 1: Tìm số lít mật ong ở thùng thứ hai (${first} + ${diff} = ${second} lít).\nBước 2: Tính tổng số lít ở cả hai thùng (${first} + ${second}).`,
-          explanation: `Giải bằng 2 bước tính:\n• Bước 1: Thùng thứ hai có: ${first} + ${diff} = ${second} (lít).\n• Bước 2: Cả hai thùng có: ${first} + ${second} = ${total} (lít). [SGK Kết nối tri thức - Bài 28, trang 81 Tập 1]`
+          options: this.makeNumericOptions(total, 'cây', [second - total, -diff, diff, 8]),
+          hint: `Bước 1: Tìm số cây Đội Hai trồng (${first} - ${diff} = ${second} cây).\nBước 2: Cộng số cây của cả hai đội (${first} + ${second}).`,
+          explanation: `Giải bằng 2 bước tính:\n• Bước 1: Đội Hai trồng được: ${first} - ${diff} = ${second} (cây).\n• Bước 2: Cả hai đội trồng được: ${first} + ${second} = ${total} (cây). [SGK Kết nối tri thức - Bài 28, trang 82 Tập 1]`
         };
       }
 
@@ -3284,69 +4084,121 @@ window.MK_SGK_ASSETS = {
       const k = this.randInt(2, 4);
       const viet = nam * k;
       const total = nam + viet;
+      const stories2 = [
+        {
+          key: 'word_2step_mult_books',
+          unit: 'quyển',
+          q: `Trong đợt quyên góp sách cho thư viện Rừng Pha Lê, bạn Nam góp được ${nam} quyển truyện, bạn Việt góp được số quyển truyện gấp ${k} lần của Nam. Hỏi cả hai bạn góp được tất cả bao nhiêu quyển truyện?`
+        },
+        {
+          key: 'word_2step_mult_shells',
+          unit: 'vỏ ốc',
+          q: `Bé Mi nhặt được ${nam} vỏ ốc biển, chị Mai nhặt được số vỏ ốc gấp ${k} lần của Mi. Hỏi hai chị em nhặt được tất cả bao nhiêu vỏ ốc biển?`
+        }
+      ];
+      const st2 = stories2[v % stories2.length];
       return {
+        templateKey: st2.key,
         category: 'word',
         topicName: 'Bài toán giải bằng hai bước tính',
         sgkCite: 'SGK Toán 3 Tập 1 - Bài 28, trang 81',
         sgkAssetKey: 'two_step_b28',
         inputMode: 'numpad',
-        questionText: `Trong đợt quyên góp sách cho thư viện Rừng Pha Lê, bạn Nam góp được ${nam} quyển truyện, bạn Việt góp được số quyển truyện gấp ${k} lần của Nam. Hỏi cả hai bạn góp được tất cả bao nhiêu quyển truyện?`,
-        correctAnswer: `${total} quyển`,
+        questionText: st2.q,
+        correctAnswer: `${total} ${st2.unit}`,
         numericAnswer: total,
-        options: this.makeNumericOptions(total, 'quyển', [viet - total, -nam, 5, -5]),
-        hint: `Bước 1: Tìm số quyển truyện của Việt (${nam} × ${k} = ${viet} quyển).\nBước 2: Cộng số truyện của cả Nam và Việt (${nam} + ${viet}).`,
-        explanation: `Giải bằng 2 bước tính:\n• Bước 1: Số quyển truyện Việt góp là: ${nam} × ${k} = ${viet} (quyển).\n• Bước 2: Cả hai bạn góp được là: ${nam} + ${viet} = ${total} (quyển). [SGK Kết nối tri thức - Bài 28, trang 81 Tập 1]`
+        options: this.makeNumericOptions(total, st2.unit, [viet - total, -nam, 5, -5]),
+        hint: `Bước 1: Tìm phần gấp ${k} lần (${nam} × ${k} = ${viet}).\nBước 2: Tính tổng cả hai phần (${nam} + ${viet}).`,
+        explanation: `Giải bằng 2 bước tính:\n• Bước 1: Phần thứ hai là: ${nam} × ${k} = ${viet} (${st2.unit}).\n• Bước 2: Tổng cả hai là: ${nam} + ${viet} = ${total} (${st2.unit}). [SGK Kết nối tri thức - Bài 28, trang 81 Tập 1]`
       };
     }
 
     /* ------------------------------------------------------------------------
      * ẢI 4: ĐỈNH NÚI THỐNG KÊ (THỐNG KÊ & XÁC SUẤT - BÀI 73, 74, 75 TẬP 2)
      * ------------------------------------------------------------------------ */
-    static genStatQuestion(idx = 0) {
+    static genStatQuestion(idx = 0, vSeed = 0) {
+      const v = vSeed + this.randInt(0, 99);
       const isProb = idx % 2 === 1;
 
       if (!isProb) {
-        // Bảng số liệu thống kê (Bài 73, 75 Tập 2)
+        // Bảng số liệu thống kê (Bài 73, 75 Tập 2 - Đa dạng chủ đề bảng & câu hỏi)
         const vNam = this.randInt(6, 12);
-        const vViet = this.randInt(13, 19);
-        const vMai = this.randInt(8, 14);
-        const vMi = this.randInt(5, 10);
+        const vViet = this.randInt(14, 21);
+        const vMai = this.randInt(9, 15);
+        const vMi = this.randInt(4, 9);
         const total = vNam + vViet + vMai + vMi;
         const diff = vViet - vMi;
+        const sumNamMai = vNam + vMai;
 
-        const askTotal = Math.random() < 0.55;
-        const ans = askTotal ? total : diff;
+        const tableThemes = [
+          {
+            key: 'stat_table_basketball',
+            title: 'Số quả bóng ném trúng rổ của 4 bạn',
+            rowLabel: 'Số quả vào rổ',
+            unit: 'quả',
+            qTotal: `Quan sát bảng số liệu trên và cho biết: Cả 4 bạn Nam, Việt, Mai, Mi ném được tất cả bao nhiêu quả bóng vào rổ?`,
+            qDiff: `Quan sát bảng số liệu trên và cho biết: Bạn Việt ném vào rổ nhiều hơn bạn Mi bao nhiêu quả bóng?`,
+            qPair: `Quan sát bảng số liệu trên và cho biết: Hai bạn Nam và Mai ném được tất cả bao nhiêu quả bóng vào rổ?`
+          },
+          {
+            key: 'stat_table_books',
+            title: 'Số quyển sách đọc được trong tháng của 4 bạn',
+            rowLabel: 'Số quyển sách',
+            unit: 'quyển',
+            qTotal: `Dựa vào bảng số liệu trên, cả 4 bạn Nam, Việt, Mai, Mi đã đọc được tất cả bao nhiêu quyển sách?`,
+            qDiff: `Dựa vào bảng số liệu trên, bạn Việt đọc được nhiều hơn bạn Mi bao nhiêu quyển sách?`,
+            qPair: `Dựa vào bảng số liệu trên, hai bạn Nam và Mai đọc được tất cả bao nhiêu quyển sách?`
+          },
+          {
+            key: 'stat_table_stars',
+            title: 'Số ngôi sao Pha Lê thu thập được của 4 bạn',
+            rowLabel: 'Số ngôi sao',
+            unit: 'ngôi sao',
+            qTotal: `Theo bảng số liệu của Rô-bốt, cả 4 bạn thu thập được tất cả bao nhiêu ngôi sao Pha Lê?`,
+            qDiff: `Theo bảng số liệu trên, bạn Việt thu thập được nhiều hơn bạn Mi bao nhiêu ngôi sao Pha Lê?`,
+            qPair: `Theo bảng số liệu trên, hai bạn Nam và Mai thu thập được tất cả bao nhiêu ngôi sao Pha Lê?`
+          }
+        ];
+
+        const theme = tableThemes[v % tableThemes.length];
+        const qMode = (v + idx) % 3;
+        const ans = qMode === 0 ? total : qMode === 1 ? diff : sumNamMai;
+        const qText = qMode === 0 ? theme.qTotal : qMode === 1 ? theme.qDiff : theme.qPair;
 
         return {
+          templateKey: `${theme.key}_${qMode}`,
           category: 'stat',
           topicName: 'Thu thập, phân loại, ghi chép số liệu. Bảng số liệu',
           sgkCite: 'SGK Toán 3 Tập 2 - Bài 73, trang 103',
           sgkAssetKey: 'stats_basketball_b73',
           visualData: {
             type: 'stats_table',
-            title: 'Số quả bóng ném trúng rổ của 4 bạn',
+            title: theme.title,
             headers: ['Bạn nhỏ', 'Nam', 'Việt', 'Mai', 'Mi'],
-            rows: [['Số quả vào rổ', vNam, vViet, vMai, vMi]]
+            rows: [[theme.rowLabel, vNam, vViet, vMai, vMi]]
           },
           inputMode: 'numpad',
-          questionText: askTotal
-            ? `Quan sát bảng số liệu trên và cho biết: Cả 4 bạn Nam, Việt, Mai, Mi ném được tất cả bao nhiêu quả bóng vào rổ?`
-            : `Quan sát bảng số liệu trên và cho biết: Bạn Việt ném vào rổ nhiều hơn bạn Mi bao nhiêu quả bóng?`,
-          correctAnswer: `${ans} quả`,
+          questionText: qText,
+          correctAnswer: `${ans} ${theme.unit}`,
           numericAnswer: ans,
-          options: this.makeNumericOptions(ans, 'quả', [-3, -2, -1, 1, 2, 4]),
-          hint: askTotal
-            ? `Cộng số quả bóng của cả 4 bạn: ${vNam} + ${vViet} + ${vMai} + ${vMi}.`
-            : `Lấy số quả của Việt trừ đi số quả của Mi: ${vViet} - ${vMi}.`,
-          explanation: askTotal
-            ? `Tổng số quả bóng cả 4 bạn ném vào rổ là: ${vNam} + ${vViet} + ${vMai} + ${vMi} = ${total} (quả). [SGK Kết nối tri thức - Bài 73, trang 103 Tập 2]`
-            : `Số quả bóng Việt ném nhiều hơn Mi là: ${vViet} - ${vMi} = ${diff} (quả). [SGK Kết nối tri thức - Bài 73, trang 103 Tập 2]`
+          options: this.makeNumericOptions(ans, theme.unit, [-3, -2, -1, 1, 2, 4]),
+          hint: qMode === 0
+            ? `Cộng số liệu của cả 4 bạn: ${vNam} + ${vViet} + ${vMai} + ${vMi}.`
+            : qMode === 1
+            ? `Lấy số liệu của Việt trừ đi của Mi: ${vViet} - ${vMi}.`
+            : `Cộng số liệu của Nam và Mai: ${vNam} + ${vMai}.`,
+          explanation: qMode === 0
+            ? `Tổng của cả 4 bạn là: ${vNam} + ${vViet} + ${vMai} + ${vMi} = ${total} (${theme.unit}). [SGK Kết nối tri thức - Bài 73, trang 103 Tập 2]`
+            : qMode === 1
+            ? `Việt nhiều hơn Mi là: ${vViet} - ${vMi} = ${diff} (${theme.unit}). [SGK Kết nối tri thức - Bài 73, trang 103 Tập 2]`
+            : `Tổng của Nam và Mai là: ${vNam} + ${vMai} = ${sumNamMai} (${theme.unit}). [SGK Kết nối tri thức - Bài 73, trang 103 Tập 2]`
         };
       }
 
-      // Khả năng xảy ra của một sự kiện: Chắc chắn, Có thể, Không thể (Bài 74 Tập 2)
+      // Khả năng xảy ra của một sự kiện: Chắc chắn, Có thể, Không thể (Bài 74 Tập 2 - 6 kịch bản)
       const scenarios = [
         {
+          key: 'prob_red_possible',
           balls: [
             { color: '#EF4444', label: 'Đỏ' },
             { color: '#EF4444', label: 'Đỏ' },
@@ -3358,6 +4210,7 @@ window.MK_SGK_ASSETS = {
           exp: 'Vì trong hộp có cả bóng Đỏ, bóng Xanh và bóng Vàng nên sự kiện lấy được quả bóng màu Đỏ là "Có thể" xảy ra.'
         },
         {
+          key: 'prob_purple_impossible',
           balls: [
             { color: '#EF4444', label: 'Đỏ' },
             { color: '#3B82F6', label: 'Xanh' },
@@ -3368,6 +4221,7 @@ window.MK_SGK_ASSETS = {
           exp: 'Vì trong hộp không có quả bóng màu Tím nào nên sự kiện lấy được bóng Tím là "Không thể" xảy ra.'
         },
         {
+          key: 'prob_blue_certain',
           balls: [
             { color: '#3B82F6', label: 'Xanh' },
             { color: '#3B82F6', label: 'Xanh' },
@@ -3377,11 +4231,45 @@ window.MK_SGK_ASSETS = {
           q: 'Trong hộp có 4 quả bóng đều có màu Xanh. Bạn Mai nhắm mắt lấy ra 1 quả bóng bất kì. Khả năng "Mai lấy được quả bóng màu Xanh" là gì?',
           ans: 'Chắc chắn',
           exp: 'Vì tất cả các quả bóng trong hộp đều màu Xanh nên Mai "Chắc chắn" lấy được quả bóng màu Xanh.'
+        },
+        {
+          key: 'prob_yellow_certain',
+          balls: [
+            { color: '#FACC15', label: 'Vàng' },
+            { color: '#FACC15', label: 'Vàng' },
+            { color: '#FACC15', label: 'Vàng' }
+          ],
+          q: 'Trong túi quà của Việt có 3 viên bi đều màu Vàng. Việt lấy ngẫu nhiên 1 viên bi. Khả năng "Việt lấy được viên bi màu Vàng" là gì?',
+          ans: 'Chắc chắn',
+          exp: 'Vì cả 3 viên bi trong túi đều màu Vàng nên Việt "Chắc chắn" lấy được viên bi màu Vàng.'
+        },
+        {
+          key: 'prob_green_possible',
+          balls: [
+            { color: '#10B981', label: 'Lục' },
+            { color: '#EF4444', label: 'Đỏ' },
+            { color: '#FACC15', label: 'Vàng' }
+          ],
+          q: 'Trong hộp có 1 bóng Xanh Lục, 1 bóng Đỏ và 1 bóng Vàng. Nam lấy ngẫu nhiên 1 quả bóng. Khả năng "Nam lấy được quả bóng màu Xanh Lục" là gì?',
+          ans: 'Có thể',
+          exp: 'Vì trong hộp có 1 quả bóng Xanh Lục cùng các màu khác nên khả năng lấy được bóng Xanh Lục là "Có thể".'
+        },
+        {
+          key: 'prob_red_impossible',
+          balls: [
+            { color: '#3B82F6', label: 'Xanh' },
+            { color: '#FACC15', label: 'Vàng' },
+            { color: '#3B82F6', label: 'Xanh' }
+          ],
+          q: 'Trong hộp chỉ có 2 quả bóng Xanh và 1 quả bóng Vàng. Mi lấy ngẫu nhiên 1 quả bóng. Khả năng "Mi lấy được quả bóng màu Đỏ" là gì?',
+          ans: 'Không thể',
+          exp: 'Vì trong hộp không có quả bóng màu Đỏ nào nên khả năng Mi lấy được bóng Đỏ là "Không thể".'
         }
       ];
 
-      const sc = this.pick(scenarios);
+      const sc = scenarios[v % scenarios.length];
       return {
+        templateKey: sc.key,
         category: 'stat',
         topicName: 'Khả năng xảy ra của một sự kiện',
         sgkCite: 'SGK Toán 3 Tập 2 - Bài 74, trang 108',
