@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 630" width="1200" height="630">
+  <!-- Bầu trời Pastel Đa Lớp 2.5D Paper-Cut -->
+  <rect width="1200" height="630" fill="#E0F2FE"/>
+  <path d="M0 0 L1200 0 L1200 340 Q600 410 0 320 Z" fill="#F0F9FF"/>
+  <path d="M0 0 L1200 0 L1200 200 Q600 260 0 180 Z" fill="#FFFDF5"/>
+
+  <!-- Mặt trời Vàng Tươi ở góc phải trên -->
+  <circle cx="965" cy="145" r="145" fill="#FEF9C3" opacity="0.8"/>
+  <circle cx="965" cy="145" r="105" fill="#FEF08A" opacity="0.9"/>
+  <circle cx="965" cy="145" r="70" fill="#FDE047"/>
+
+  <!-- Cầu vồng Pastel 2.5D phía xa -->
+  <path d="M580 520 Q920 60 1260 520" fill="none" stroke="#FDA4AF" stroke-width="22" opacity="0.65"/>
+  <path d="M602 520 Q920 90 1238 520" fill="none" stroke="#FDE047" stroke-width="22" opacity="0.75"/>
+  <path d="M624 520 Q920 120 1216 520" fill="none" stroke="#6EE7B7" stroke-width="22" opacity="0.75"/>
+  <path d="M646 520 Q920 150 1194 520" fill="none" stroke="#93C5FD" stroke-width="22" opacity="0.75"/>
+
+  <!-- Đám mây trắng Paper-Cut -->
+  <g fill="#FFFFFF">
+    <circle cx="140" cy="96" r="32"/><circle cx="178" cy="86" r="42"/><circle cx="220" cy="98" r="30"/>
+    <circle cx="680" cy="78" r="26"/><circle cx="712" cy="70" r="34"/><circle cx="746" cy="80" r="24"/>
+    <circle cx="1060" cy="105" r="28"/><circle cx="1095" cy="95" r="38"/><circle cx="1132" cy="108" r="26"/>
+  </g>
+
+  <!-- Đỉnh núi Pha Lê Sapphire phía xa -->
+  <polygon points="690,520 850,170 1010,520" fill="#93C5FD"/>
+  <polygon points="850,170 802,275 850,248 898,275" fill="#FFFFFF"/>
+  <polygon points="910,520 1085,140 1250,520" fill="#60A5FA"/>
+  <polygon points="1085,140 1030,255 1085,226 1140,255" fill="#FFFFFF"/>
+
+  <!-- Cụm tinh thể Pha Lê khổng lồ -->
+  <polygon points="730,520 760,360 795,520" fill="#F472B6"/>
+  <polygon points="775,520 802,395 828,520" fill="#A78BFA"/>
+  <polygon points="1115,520 1148,350 1182,520" fill="#38BDF8"/>
+
+  <!-- Lớp đồi giấy cắt uốn lượn -->
+  <path d="M0 480 Q320 390 660 470 T1200 445 L1200 630 L0 630 Z" fill="#7DD3FC"/>
+  <path d="M0 515 Q280 445 620 510 T1200 490 L1200 630 L0 630 Z" fill="#6EE7B7"/>
+  <path d="M0 552 Q360 515 740 555 T1200 540 L1200 630 L0 630 Z" fill="#34D399"/>
+
+  <!-- Khung viền trang trí vàng & trắng kem bên ngoài -->
+  <rect x="8" y="8" width="1184" height="614" rx="32" fill="none" stroke="#FDE047" stroke-width="8"/>
+  <rect x="16" y="16" width="1168" height="598" rx="26" fill="none" stroke="#FFFFFF" stroke-width="5"/>
+</svg>

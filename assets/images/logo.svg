@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <!-- Viền Vàng Hoàng Kim & Nền Sapphire Đa Lớp 2.5D Paper-Cut -->
+  <rect x="8" y="8" width="496" height="496" rx="112" fill="#F59E0B"/>
+  <rect x="14" y="14" width="484" height="484" rx="106" fill="#FDE047"/>
+  <rect x="24" y="24" width="464" height="464" rx="96" fill="#0369A1"/>
+  <rect x="34" y="34" width="444" height="444" rx="88" fill="#0284C7"/>
+
+  <!-- Vòng hào quang Paper-Cut trung tâm -->
+  <circle cx="256" cy="226" r="196" fill="#0EA5E9"/>
+  <circle cx="256" cy="226" r="158" fill="#38BDF8"/>
+  <circle cx="256" cy="226" r="122" fill="#7DD3FC" opacity="0.45"/>
+
+  <!-- Các vì sao 4 cánh lấp lánh -->
+  <polygon points="88,84 95,102 113,109 95,116 88,134 81,116 63,109 81,102" fill="#FEF08A"/>
+  <polygon points="424,84 431,102 449,109 431,116 424,134 417,116 399,109 417,102" fill="#E0F2FE"/>
+  <circle cx="78" cy="316" r="10" fill="#6EE7B7"/>
+  <circle cx="434" cy="316" r="10" fill="#FDE047"/>
+
+  <!-- Thanh Kiếm Ánh Sáng & Quyền Trượng Pha Lê bắt chéo sau Khiên -->
+  <g transform="rotate(-36 256 236)">
+    <polygon points="256,22 280,66 272,340 240,340 232,66" fill="#BAE6FD"/>
+    <polygon points="256,22 268,66 262,336 256,336" fill="#FFFFFF"/>
+    <rect x="204" y="330" width="104" height="22" rx="11" fill="#FBBF24"/>
+    <rect x="243" y="352" width="26" height="54" rx="10" fill="#D97706"/>
+    <circle cx="256" cy="412" r="17" fill="#FEF08A"/>
+  </g>
+  <g transform="rotate(36 256 236)">
+    <rect x="244" y="68" width="24" height="332" rx="12" fill="#F59E0B"/>
+    <polygon points="256,18 294,62 256,106 218,62" fill="#A78BFA"/>
+    <polygon points="256,28 280,62 256,96 232,62" fill="#F3E8FF"/>
+  </g>
+
+  <!-- Khiên Hiệp Sĩ Hoàng Kim 2.5D -->
+  <path d="M122 124 L390 124 L390 258 Q390 370 256 422 Q122 370 122 258 Z" fill="#D97706"/>
+  <path d="M130 130 L382 130 L382 256 Q382 362 256 412 Q130 362 130 256 Z" fill="#FDE047"/>
+  <path d="M148 146 L364 146 L364 252 Q364 344 256 390 Q148 344 148 252 Z" fill="#0284C7"/>
+  <path d="M156 154 L356 154 L356 248 Q356 334 256 378 Q156 334 156 248 Z" fill="#0EA5E9"/>
+  <path d="M156 154 L256 154 L256 378 Q156 334 156 248 Z" fill="#38BDF8" opacity="0.55"/>
+
+  <!-- Vương Miện Hoàng Gia trên đỉnh Khiên -->
+  <polygon points="168,136 184,64 222,102 256,46 290,102 328,64 344,136" fill="#F59E0B"/>
+  <polygon points="176,134 190,74 224,106 256,56 288,106 322,74 336,134" fill="#FDE047"/>
+  <rect x="168" y="124" width="176" height="18" rx="9" fill="#FEF08A"/>
+  <circle cx="186" cy="60" r="11" fill="#FB7185"/>
+  <circle cx="256" cy="44" r="13" fill="#34D399"/>
+  <circle cx="326" cy="60" r="11" fill="#38BDF8"/>
+
+  <!-- Viên Đá Pha Lê Ngọc Lục Bảo Đa Diện ở tâm Khiên -->
+  <polygon points="256,162 326,220 300,326 212,326 186,220" fill="#FEF08A"/>
+  <polygon points="256,172 316,222 293,316 219,316 196,222" fill="#059669"/>
+  <polygon points="256,176 310,222 288,310 224,310 202,222" fill="#10B981"/>
+  <polygon points="256,184 292,226 256,302 220,226" fill="#6EE7B7"/>
+  <polygon points="256,184 256,302 220,226" fill="#ECFDF5" opacity="0.75"/>
+  <polygon points="236,202 242,216 256,222 242,228 236,242 230,228 216,222 230,216" fill="#FFFFFF"/>
+
+  
+        <!-- Dải ruy-băng vàng đáy biểu tượng -->
+        <path d="M90 404 L132 384 L380 384 L422 404 L398 462 L114 462 Z" fill="#D97706"/>
+        <path d="M102 396 L138 380 L374 380 L410 396 L390 450 L122 450 Z" fill="#FBBF24"/>
+        <path d="M114 398 L398 398 L382 440 L130 440 Z" fill="#FFFBEB"/>
+        
+  <text x="256" y="431" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="34" font-weight="900" fill="#92400E">TOÁN 3</text>
+</svg>

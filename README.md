@@ -8,6 +8,8 @@
 [![Tác giả](https://img.shields.io/badge/Author-Techshare%20VN-007a33?style=flat-square)](https://techsharevn.com)
 [![License](https://img.shields.io/badge/License-GPL--2.0--or--later-blue?style=flat-square)](https://www.gnu.org/licenses/gpl-2.0.html)
 
+![Ảnh Cover Hiệp Sĩ Toán Học Lớp 3 (1200x630)](assets/images/cover-1200x630.png)
+
 ---
 
 ## 🌟 Giới Thiệu

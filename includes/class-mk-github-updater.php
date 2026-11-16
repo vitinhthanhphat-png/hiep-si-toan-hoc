@@ -286,35 +286,69 @@ class MK_GitHub_Updater {
 	}
 
 	/**
-	 * Hook vào `pre_set_site_transient_update_plugins` để báo cho WordPress biết khi có bản Release .zip mới.
+	 * Trả về mảng đường dẫn Icon chuẩn WordPress (SVG, 2x 256x256, 1x 128x128).
+	 *
+	 * @return array
+	 */
+	public static function get_plugin_icons() {
+		return array(
+			'svg'     => MK_PLUGIN_URL . 'assets/images/logo.svg',
+			'2x'      => MK_PLUGIN_URL . 'assets/images/icon-256x256.png',
+			'1x'      => MK_PLUGIN_URL . 'assets/images/icon-128x128.png',
+			'default' => MK_PLUGIN_URL . 'assets/images/icon-256x256.png',
+		);
+	}
+
+	/**
+	 * Trả về mảng đường dẫn Banner / Cover (1200x630px) cho hộp thoại Chi tiết Plugin của WordPress.
+	 *
+	 * @return array
+	 */
+	public static function get_plugin_banners() {
+		return array(
+			'high' => MK_PLUGIN_URL . 'assets/images/cover-1200x630.png',
+			'low'  => MK_PLUGIN_URL . 'assets/images/cover-1200x630.png',
+		);
+	}
+
+	/**
+	 * Hook vào `pre_set_site_transient_update_plugins` để báo cho WordPress biết khi có bản Release .zip mới,
+	 * đồng thời cung cấp Icon & Banner (1200x630) cho trang Plugins / Updates.
 	 *
 	 * @param object $transient Đối tượng update_plugins transient của WordPress.
 	 * @return object
 	 */
 	public static function check_for_update( $transient ) {
-		if ( empty( $transient->checked ) ) {
+		if ( ! is_object( $transient ) ) {
 			return $transient;
 		}
 
 		$status = self::get_release_status( false );
+		$icons   = self::get_plugin_icons();
+		$banners = self::get_plugin_banners();
+
+		$plugin_data = (object) array(
+			'id'            => self::get_repo_url(),
+			'slug'          => 'hiep-si-toan-hoc',
+			'plugin'        => MK_PLUGIN_BASENAME,
+			'new_version'   => $status['latest_version'],
+			'url'           => self::get_repo_url(),
+			'package'       => $status['download_url'],
+			'icons'         => $icons,
+			'banners'       => $banners,
+			'banners_rtl'   => array(),
+			'tested'        => '6.7',
+			'requires_php'  => '7.4',
+			'compatibility' => new stdClass(),
+		);
 
 		if ( $status['has_update'] && ! empty( $status['download_url'] ) ) {
-			$plugin_data = (object) array(
-				'id'            => self:: get_repo_url(),
-				'slug'          => 'hiep-si-toan-hoc',
-				'plugin'        => MK_PLUGIN_BASENAME,
-				'new_version'   => $status['latest_version'],
-				'url'           => self::get_repo_url(),
-				'package'       => $status['download_url'],
-				'icons'         => array(),
-				'banners'       => array(),
-				'banners_rtl'   => array(),
-				'tested'        => '6.7',
-				'requires_php'  => '7.4',
-				'compatibility' => new stdClass(),
-			);
-
 			$transient->response[ MK_PLUGIN_BASENAME ] = $plugin_data;
+		} else {
+			if ( ! isset( $transient->no_update ) || ! is_array( $transient->no_update ) ) {
+				$transient->no_update = array();
+			}
+			$transient->no_update[ MK_PLUGIN_BASENAME ] = $plugin_data;
 		}
 
 		return $transient;
@@ -346,6 +380,8 @@ class MK_GitHub_Updater {
 		$info->requires_php  = '7.4';
 		$info->last_updated  = $status['published_at'];
 		$info->download_link = $status['download_url'];
+		$info->icons         = self::get_plugin_icons();
+		$info->banners       = self::get_plugin_banners();
 
 		$changelog_html = ! empty( $status['release_notes'] )
 			? nl2br( esc_html( $status['release_notes'] ) )

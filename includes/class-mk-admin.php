@@ -525,7 +525,12 @@ class MK_Admin {
 			<!-- Header Gọn Phẳng & Thanh Điều Hướng 4 Tab Khoa Học -->
 			<div class="mk-admin-topbar">
 				<div class="mk-admin-brand">
-					<span class="mk-admin-brand__logo" aria-hidden="true">🛡️</span>
+					<img
+						src="<?php echo esc_url( MK_PLUGIN_URL . 'assets/images/logo.svg' ); ?>"
+						alt="Logo Hiệp Sĩ Toán Học Lớp 3"
+						class="mk-admin-brand__logo-img"
+						style="width:48px;height:48px;border-radius:12px;flex-shrink:0;box-shadow:0 3px 8px rgba(2,132,199,0.22);"
+					/>
 					<div>
 						<h1 class="mk-admin-brand__title">
 							Hiệp Sĩ Toán Học Lớp 3
